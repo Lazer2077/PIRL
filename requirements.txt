@@ -1,0 +1,14 @@
+#torch
+#torchvision
+#torchaudio
+tensorboard
+gym
+dash
+plotly
+tyro
+numpy
+pandas
+apscheduler
+scipy
+# cyipopt
+h5py
