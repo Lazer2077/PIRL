@@ -7,7 +7,7 @@ from datetime import datetime
 import os, sys, random
 from copy import deepcopy
 import time
-
+from torch.utils.tensorboard import SummaryWriter
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 parser = argparse.ArgumentParser()
 parser.add_argument('--tau',  default=0.005, type=float) # target smoothing coefficient
@@ -29,6 +29,7 @@ parser.add_argument('--render', default=False, type=bool) # show UI or not
 #parser.add_argument('--log_interval', default=50, type=int) #
 parser.add_argument('--load', default=False, type=bool) # load model
 #parser.add_argument('--render_interval', default=100, type=int) # after render_interval, the env.render() will work
+parser.add_argument('--hidden_size', default=256, type=int)
 parser.add_argument("--buffer_warm_size", type=int, default=256)
 parser.add_argument('--alpha', type=float, default=0.2, metavar='G',
                     help='Temperature parameter α determines the relative importance of the entropy\
@@ -39,9 +40,6 @@ parser.add_argument('--eval_interval', type=int, default=10,
                     help='Evaluates a policy a policy every X episode (default: 10)')
 parser.add_argument('--start_steps', type=int, default=10000, metavar='N',
                     help='Steps sampling random actions (default: 10000)')
-
-parser.add_argument('--is_discrete', type=bool, default=True, metavar='G',
-                    help='Is the action space discrete? (default: True) ')
 args = parser.parse_args()
 
 # create a folder to save model and training log
@@ -67,37 +65,33 @@ args.EnvOptions = {}
 MODEL_NAME = f'model_{args.ENV_NAME}'
 Env = gym.make(args.ENV_NAME)
 
-
-
 Last_50_reward = 0
+if isinstance(Env.action_space, gym.spaces.Discrete):
+    action_dim = Env.action_space.n
+    args.is_discrete = True
+else:  # Box
+    action_dim = Env.action_space.shape[0]
+    args.is_discrete = False
+
 state_dim = Env.observation_space.shape[0]
-action_dim = Env.action_space
 ScalingDict = {}
-
-from apscheduler.schedulers.background  import BackgroundScheduler
-from RL_dashboard.DashHome import *
-
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"),MODEL_NAME))
+writer = SummaryWriter(savePath)
+port = 6006
+from RL_dashboard.socketUtility import *
+kill_port(port)
+if os.name == 'nt':
+    cmd_line = '''start /b cmd.exe /k "tensorboard --logdir {} --port {} --reload_interval {} --reload_multifile True"'''.format(
+        savePath, port, 10
+    )
+else:
+    cmd_line = "tensorboard --logdir {} --port {} --reload_interval {} &".format(
+        savePath, port, 10
+    )
+os.system(cmd_line)
 
-DashInstance_c=DashInstance(Env, savePath, selectRandomSeed, port=8800)
-from RL_dashboard.LogWriter import *
-LogWriter_c = LogWriter(savePath, port=6001)
 
 import OptMethods
-
-def plotResults(agent, i_episode, steps, plot_state, plot_action):
-    batch = agent.replay_buffer.getEpisodeBatch(steps)
-    ValueDict = agent.replayEpisodeValue(batch) 
-    obs = np.array(plot_state)
-    action = np.array(plot_action)
-    TrajDict =  {
-        f"state{i+1}": val for i, val in enumerate(obs)
-    }
-    
-
-    xaxis = np.arange(obs.shape[0])     
-    DashInstance_c.updatePlot(xaxis, TrajDict, ValueDict, i_episode, steps, agent.LossDict, agent.AuxDict)
-    
 
 def main():
     Last_50_reward = 0
@@ -114,7 +108,7 @@ def main():
         args.critic_learning_rate = 1e-3
         pass
     elif 'sac' in args.OPT_METHODS.lower():
-        pass
+        args.policy_type = 'Gaussian'
 
     else:
         pass
@@ -122,61 +116,48 @@ def main():
         args.valuePhysicalWeight = 0.1# 0.03
         args.policyPhysicalWeight = 0
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
-    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_dim, ScalingDict, device, args)
+    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, Env.action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
     total_numsteps = 0
-    
     for i in range(1, args.max_episode):
             episode_steps = 0
             state, _ = Env.reset()
-            plot_state= [] 
-            plot_action= []
             episode_reward = 0
             for t in count():
                 action = agent.select_action(state)
-                # next_state shape [nObs], reward,terminated,trunctated shape [], scalar
-                plot_state.append(state)
-                plot_action.append(action)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
-                #if args.render and i >= args.render_interval : Env.render()
                 done=terminated or truncated
                 agent.replay_buffer.push((state, next_state, action, reward, float(done))) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
-                # only start training when buffer size is larger than specified warm size
+                
+                if i % 5 == 0:  
+                    writer.add_scalar(f'Trajectory/Episode_{i}/Action', action, t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/State1', state[0], t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/State2', state[1], t)
+                
+
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
-                #if len(agent.replay_buffer.storage) >= args.batch_size:
-                    # repeat update for update_iteration times
-                    #print('update iteration: ')
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
-                        #print(iUp,end=',')
-                        # pass done to the update, so can either update only after done, or every step, based on the specific algorithm
                         Info['iUpdate'] = iUp
                         agent.update(args.batch_size, Info)
-                        # if done:
-                        #     print('update {} sec'.format(time.time()-tBeg))
                 if done:
                     break
-            # if i % args.log_interval == 0:
-            #     agent.save()
+            q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+            writer.add_scalar(f'Loss/Q1', q1_loss, i)
+            writer.add_scalar(f'Loss/Q2', q2_loss, i)
+            writer.add_scalar(f'Loss/Policy', policy_loss, i)
+            writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
+            writer.add_scalar(f'Loss/Alpha', alpha, i)
+ 
             total_numsteps += episode_steps+1
-            if args.max_episode-i < 50:
-                Last_50_reward += episode_reward
-                
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
-
-            plotResults(agent, i, t, plot_state, plot_action)
-            try:
-                LogWriter_c.writeAll(agent)
-            except:
-                print('LogWriter_c.writeAll failed')
-                pass
-
-            # validation steps
+            writer.add_scalar('Episode/Reward', episode_reward, i)
+           
             if (args.ENABLE_VALIDATION) & (i % args.eval_interval == 0):
                 avg_reward = 0.
                 episodes = 10
@@ -185,7 +166,7 @@ def main():
                     episode_reward = 0
                     done = False
                     for t in count():
-                        action = agent.select_action(state, IS_EVALUATION=True)
+                        action = agent.select_action(state)
 
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward
@@ -198,18 +179,15 @@ def main():
                     avg_reward += episode_reward
                     #plotResults(agent, i, t)
                 avg_reward /= episodes
-                #agent.writer.add_scalar('avg_reward/test', avg_reward, i)
                 iStepEvaluation += 1
                 try:
-                    LogWriter_c.writeEvaluation(avg_reward, iStepEvaluation)
+                    writer.add_scalar('Test/Reward', avg_reward, i)
                 except:
-                    print('LogWriter_c.writeEvaluation failed')
+                    print('writer.add_scalar failed')
                     pass
                 print("----------------------------------------")
                 print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
                 print("----------------------------------------")
 
-                pass
-    print("====== Train Finish, Avg Last 50 episode reward: {} ======".format(Last_50_reward/50))
 if __name__ == '__main__':
     main()
