@@ -59,7 +59,6 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-from Env import *
 args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'pinn' 'pinnsac' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'CartPole-v1' # 'cartpole' # #'SpeedTracking' # pendulumFH # SimpleSpeed # 'mountaincar','PointMassLQR'
 args.ENABLE_VALIDATION = True
