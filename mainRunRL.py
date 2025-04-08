@@ -58,7 +58,8 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
 
 args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'pinn' 'pinnsac' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Pendulum-v1' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1'
+                
+args.ENV_NAME = 'HalfCheetah-v4' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1'.'HalfCheetah-v4'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
@@ -89,14 +90,9 @@ else:
         savePath, port, 10
     )
 os.system(cmd_line)
-
-
 import OptMethods
-
 def main():
-    Last_50_reward = 0
     args.Env = Env
-    Last_50_reward = 0
     if 'ddpg' in args.OPT_METHODS.lower():
         args.exploration_noise = 0.5
         args.dynamic_noise = False
@@ -133,9 +129,9 @@ def main():
                 agent.replay_buffer.push((state, next_state, action, reward, float(done))) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
-                
                 if i % 5 == 0:  
-                    writer.add_scalar(f'Trajectory/Episode_{i}/Action', action, t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/Action1', action[0], t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/Action2', action[1], t)
                     writer.add_scalar(f'Trajectory/Episode_{i}/State1', state[0], t)
                     writer.add_scalar(f'Trajectory/Episode_{i}/State2', state[1], t)
                 
@@ -180,11 +176,7 @@ def main():
                     #plotResults(agent, i, t)
                 avg_reward /= episodes
                 iStepEvaluation += 1
-                try:
-                    writer.add_scalar('Test/Reward', avg_reward, i)
-                except:
-                    print('writer.add_scalar failed')
-                    pass
+                writer.add_scalar('Test/Reward', avg_reward, i)
                 print("----------------------------------------")
                 print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
                 print("----------------------------------------")

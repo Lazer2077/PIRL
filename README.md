@@ -1,4 +1,6 @@
-# Enviroment
+# Physics-Informed Model Based Reinforcement Learning
+
+## Environment
 Install the mujuco-gym
 
 ```bash

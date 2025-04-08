@@ -236,9 +236,10 @@ class SAC:
         done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
 
         with torch.no_grad():
-            next_action, next_log_pi, _, _, _ = self.evaluate(next_state_batch)
+            next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
             q1_next = self.Q_target_net1(next_state_batch, next_action)
             q2_next = self.Q_target_net2(next_state_batch, next_action)
+            # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
 
@@ -247,7 +248,7 @@ class SAC:
         q1_loss = F.mse_loss(q1_pred, next_q_value.detach())
         q2_loss = F.mse_loss(q2_pred, next_q_value.detach())
 
-        sample_action, log_prob, _, _, _ = self.evaluate(state_batch)
+        sample_action, log_prob, _ = self.policy_net.sample(state_batch)
         log_prob = log_prob.view(-1, 1).clone() 
         q1_pi = self.Q_net1(state_batch, sample_action)
         q2_pi = self.Q_net2(state_batch, sample_action)
