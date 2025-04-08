@@ -5,6 +5,12 @@ Install the mujuco-gym
 pip install gymnasium[mujoco] mujoco
 ```
 
+Intall the Requirements
+
+```bash
+pip install -r requirements.txt
+```
+
 # Run the code
 
 ```bash

@@ -162,21 +162,23 @@ class SAC:
         q2_loss = F.mse_loss(q2_pred, next_q_value.detach())
 
         sample_action, log_prob, _, _, _ = self.evaluate(state_batch)
+        log_prob = log_prob.view(-1, 1).clone() 
         q1_pi = self.Q_net1(state_batch, sample_action)
         q2_pi = self.Q_net2(state_batch, sample_action)
         min_q_pi = torch.min(q1_pi, q2_pi)
-        policy_loss = (self.alpha * log_prob.reshape(-1, 1) - min_q_pi).mean()
-
-        self.Q1_optimizer.zero_grad()
-        self.Q2_optimizer.zero_grad()
-        q1_loss.backward()
-        q2_loss.backward()
-        self.Q1_optimizer.step()
-        self.Q2_optimizer.step()
+        policy_loss = (self.alpha * log_prob - min_q_pi).mean()
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         self.policy_optimizer.step()
+        
+        self.Q1_optimizer.zero_grad()
+        self.Q2_optimizer.zero_grad()
+        (q1_loss+q2_loss).backward()    
+        self.Q1_optimizer.step()
+        self.Q2_optimizer.step()
+
+
 
         if self.automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
