@@ -11,7 +11,7 @@ from .lib.ReplayBuffer import Replay_buffer
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
 EPSILON = 1e-6
-
+# torch.autograd.set_detect_anomaly(True)
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
@@ -155,15 +155,11 @@ class Q(nn.Module):
         x = (x - self.xmean) / self.xstd
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        
+        model_output = self.fc_model(x)
+        return self.fc3(x), model_output
     
-    def forward_model(self, s, a):
-        s = (s - self.xmean[:self.state_dim]) / self.xstd[:self.state_dim]
-        x = torch.cat((s, a), -1)
-        x = (x - self.xmean) / self.xstd
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc_model(x)
+
 
 class SAC:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
@@ -245,41 +241,39 @@ class SAC:
 
         with torch.no_grad():
             next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-            q1_next = self.Q_target_net1(next_state_batch, next_action)
-            q2_next = self.Q_target_net2(next_state_batch, next_action)
+            q1_next, _ = self.Q_target_net1(next_state_batch, next_action)
+            q2_next, _ = self.Q_target_net2(next_state_batch, next_action)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
 
-        q1_pred = self.Q_net1(state_batch, action_batch)
-        q2_pred = self.Q_net2(state_batch, action_batch)
-        q1_loss = F.mse_loss(q1_pred, next_q_value.detach())
-        q2_loss = F.mse_loss(q2_pred, next_q_value.detach())
 
-        sample_action, log_prob, _ = self.policy_net.sample(state_batch)
-        log_prob = log_prob.view(-1, 1).clone() 
-        q1_pi = self.Q_net1(state_batch, sample_action)
-        q2_pi = self.Q_net2(state_batch, sample_action)
+        qf1, model_output1 = self.Q_net1(state_batch, action_batch)
+        qf2, model_output2 = self.Q_net2(state_batch, action_batch)
+
         
-        s1_next = self.Q_net1.forward_model(state_batch,sample_action)
-        s2_next = self.Q_net2.forward_model(state_batch,sample_action)
-
-        q1_model_loss = F.mse_loss(s1_next, next_state_batch)
-        q2_model_loss = F.mse_loss(s2_next, next_state_batch)
+        q1_loss = F.mse_loss(qf1, next_q_value)
+        q2_loss = F.mse_loss(qf2, next_q_value)
+        model1_loss = F.mse_loss(model_output1, next_state_batch)
+        model2_loss = F.mse_loss(model_output2, next_state_batch)
         
-        min_q_pi = torch.min(q1_pi, q2_pi)
-        policy_loss = (self.alpha * log_prob - min_q_pi).mean()
-
-        self.policy_optimizer.zero_grad()
+        
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
-        total_loss = policy_loss + q1_loss + q2_loss + q1_model_loss + q2_model_loss
-        total_loss.backward()
-        
-
-        self.policy_optimizer.step()
+        (q1_loss+q2_loss + model1_loss+model2_loss).backward()   
         self.Q1_optimizer.step()
         self.Q2_optimizer.step()
+        
+        pi, log_prob, _ = self.policy_net.sample(state_batch)
+        q1_pi, model_output1 = self.Q_net1(state_batch, pi)
+        q2_pi, model_output2 = self.Q_net2(state_batch, pi)
+
+        min_q_pi = torch.min(q1_pi, q2_pi)
+        policy_loss = (self.alpha * log_prob - min_q_pi).mean()
+        self.policy_optimizer.zero_grad()
+        policy_loss.backward()
+        self.policy_optimizer.step()
+
         if self.automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
             self.alpha_optim.zero_grad()

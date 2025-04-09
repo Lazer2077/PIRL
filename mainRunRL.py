@@ -78,7 +78,7 @@ state_dim = Env.observation_space.shape[0]
 ScalingDict = {}
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"),MODEL_NAME))
 writer = SummaryWriter(savePath)
-port = 6006
+port = 6007
 from RL_dashboard.socketUtility import *
 kill_port(port)
 if os.name == 'nt':
@@ -130,9 +130,9 @@ def main():
                 state = next_state
                 episode_steps += 1
                 if i % 5 == 0:  
-                    for j in range(state_dim):
+                    for j in range(min(state_dim, 3)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
-                    for j in range(action_dim):
+                    for j in range(min(action_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                 
 
