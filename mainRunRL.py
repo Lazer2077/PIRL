@@ -15,9 +15,9 @@ parser.add_argument('--update_iteration', default=1, type=int)
 parser.add_argument('--mode', default='train', type=str) # test or train
 parser.add_argument('--learning_rate', default=3e-4, type=int)
 parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
-parser.add_argument('--capacity', default=2000, type=int) # replay buffer size
+parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
 parser.add_argument('--max_episode', default=12000, type=int) #  num of  games
-parser.add_argument('--batch_size', default=32, type=int) # mini batch size
+parser.add_argument('--batch_size', default=128, type=int) # mini batch size
 parser.add_argument('--seed', default=True, type=bool)
 parser.add_argument('--random_seed', default=526963494564900, type=int) # 108271139271800
 parser.add_argument('--dynamic_noise', default=False, type=bool)
@@ -130,10 +130,10 @@ def main():
                 state = next_state
                 episode_steps += 1
                 if i % 5 == 0:  
-                    writer.add_scalar(f'Trajectory/Episode_{i}/Action1', action[0], t)
-                    writer.add_scalar(f'Trajectory/Episode_{i}/Action2', action[1], t)
-                    writer.add_scalar(f'Trajectory/Episode_{i}/State1', state[0], t)
-                    writer.add_scalar(f'Trajectory/Episode_{i}/State2', state[1], t)
+                    for j in range(state_dim):
+                        writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
+                    for j in range(action_dim):
+                        writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                 
 
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:

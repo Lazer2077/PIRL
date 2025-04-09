@@ -17,7 +17,6 @@ def weights_init_(m):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
-
 class GaussianPolicy(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
         super(GaussianPolicy, self).__init__()
@@ -135,11 +134,12 @@ class Actor(nn.Module):
             return mu, log_std
 
 class Q(nn.Module):
-    def __init__(self, state_dim, action_dim, xMean, xStd, hidden_dim=256, is_discrete=False):
+    def __init__(self, state_dim, action_dim, xMean, xStd, hidden_dim=512, is_discrete=False):
         super(Q, self).__init__()
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, 1)
+        self.fc_model = nn.Linear(hidden_dim, state_dim)
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.xmean = xMean
@@ -156,6 +156,14 @@ class Q(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
+    
+    def forward_model(self, s, a):
+        s = (s - self.xmean[:self.state_dim]) / self.xstd[:self.state_dim]
+        x = torch.cat((s, a), -1)
+        x = (x - self.xmean) / self.xstd
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc_model(x)
 
 class SAC:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
@@ -252,21 +260,26 @@ class SAC:
         log_prob = log_prob.view(-1, 1).clone() 
         q1_pi = self.Q_net1(state_batch, sample_action)
         q2_pi = self.Q_net2(state_batch, sample_action)
+        
+        s1_next = self.Q_net1.forward_model(state_batch,sample_action)
+        s2_next = self.Q_net2.forward_model(state_batch,sample_action)
+
+        q1_model_loss = F.mse_loss(s1_next, next_state_batch)
+        q2_model_loss = F.mse_loss(s2_next, next_state_batch)
+        
         min_q_pi = torch.min(q1_pi, q2_pi)
         policy_loss = (self.alpha * log_prob - min_q_pi).mean()
 
         self.policy_optimizer.zero_grad()
-        policy_loss.backward()
-        self.policy_optimizer.step()
-        
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
-        (q1_loss+q2_loss).backward()    
+        total_loss = policy_loss + q1_loss + q2_loss + q1_model_loss + q2_model_loss
+        total_loss.backward()
+        
+
+        self.policy_optimizer.step()
         self.Q1_optimizer.step()
         self.Q2_optimizer.step()
-
-
-
         if self.automatic_entropy_tuning:
             alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
             self.alpha_optim.zero_grad()
