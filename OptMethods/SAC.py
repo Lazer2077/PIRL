@@ -247,10 +247,8 @@ class SAC:
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
 
-
         qf1, model_output1 = self.Q_net1(state_batch, action_batch)
         qf2, model_output2 = self.Q_net2(state_batch, action_batch)
-
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)

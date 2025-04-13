@@ -79,8 +79,6 @@ ScalingDict = {}
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"),MODEL_NAME))
 writer = SummaryWriter(savePath)
 port = 6007
-from RL_dashboard.socketUtility import *
-kill_port(port)
 if os.name == 'nt':
     cmd_line = '''start /b cmd.exe /k "tensorboard --logdir {} --port {} --reload_interval {} --reload_multifile True"'''.format(
         savePath, port, 10
