@@ -41,10 +41,7 @@ parser.add_argument('--eval_interval', type=int, default=10,
 parser.add_argument('--start_steps', type=int, default=10000, metavar='N',
                     help='Steps sampling random actions (default: 10000)')
 args = parser.parse_args()
-
 # create a folder to save model and training log
-
-    
 if args.seed:
     selectRandomSeed = args.random_seed
 else:
@@ -127,10 +124,10 @@ def main():
                 agent.replay_buffer.push((state, next_state, action, reward, float(done))) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
-                if i % 5 == 0:  
-                    for j in range(min(state_dim, 3)):
+                if i % 50 == 0:  
+                    for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
-                    for j in range(min(action_dim, 2)):
+                    for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                 
 

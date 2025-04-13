@@ -139,7 +139,7 @@ class Q(nn.Module):
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, 1)
-        self.fc_model = nn.Linear(hidden_dim, state_dim)
+        # self.fc_model = nn.Linear(hidden_dim, state_dim)
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.xmean = xMean
@@ -155,9 +155,9 @@ class Q(nn.Module):
         x = (x - self.xmean) / self.xstd
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        
-        model_output = self.fc_model(x)
-        return self.fc3(x), model_output
+        return self.fc3(x)
+        # model_output = self.fc_model(x)
+        # return self.fc3(x), model_output
     
 
 
