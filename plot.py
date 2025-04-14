@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 from tensorboard.backend.event_processing import event_accumulator
 
-def sum_fisrt_2000(values):
+def sum_fisrt_2000(values): # sum 2000
     return sum(values[:2000])
 
 def load_scalar_from_event(log_dir, tag):
