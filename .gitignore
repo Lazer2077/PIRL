@@ -9,12 +9,8 @@ model**/
 **tmp**
 
 **debug**
-
 testdash/*
-
 **.vscode/*
-model_expsq_fiv.zip
-model_possqpow2.zip
 **.png
 **.pth
-commandline_args.txt
+**.html
