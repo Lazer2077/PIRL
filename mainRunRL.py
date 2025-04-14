@@ -54,13 +54,13 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'pinn' 'pinnsac' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'PINNSAC1' #'ddpg' 'SAC' 'pinn' 'pinnsac' 'pinntry' 'sacwithv','pinnsac_3'
                 
-args.ENV_NAME = 'HalfCheetah-v4' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1'.'HalfCheetah-v4'
+args.ENV_NAME = 'Hopper-v4' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1'.'HalfCheetah-v4'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
-MODEL_NAME = f'model_{args.ENV_NAME}'
+MODEL_NAME = f'pinnsac1_{args.ENV_NAME}'
 Env = gym.make(args.ENV_NAME)
 
 Last_50_reward = 0
@@ -73,9 +73,9 @@ else:  # Box
 
 state_dim = Env.observation_space.shape[0]
 ScalingDict = {}
-savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"),MODEL_NAME))
+savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
-port = 6007
+port = 6008
 if os.name == 'nt':
     cmd_line = '''start /b cmd.exe /k "tensorboard --logdir {} --port {} --reload_interval {} --reload_multifile True"'''.format(
         savePath, port, 10

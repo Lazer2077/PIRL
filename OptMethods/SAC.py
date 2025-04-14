@@ -156,8 +156,6 @@ class Q(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
-        # model_output = self.fc_model(x)
-        # return self.fc3(x), model_output
     
 
 
@@ -241,30 +239,28 @@ class SAC:
 
         with torch.no_grad():
             next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-            q1_next, _ = self.Q_target_net1(next_state_batch, next_action)
-            q2_next, _ = self.Q_target_net2(next_state_batch, next_action)
+            q1_next = self.Q_target_net1(next_state_batch, next_action)
+            q2_next = self.Q_target_net2(next_state_batch, next_action)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
 
-        qf1, model_output1 = self.Q_net1(state_batch, action_batch)
-        qf2, model_output2 = self.Q_net2(state_batch, action_batch)
+        qf1 = self.Q_net1(state_batch, action_batch)
+        qf2 = self.Q_net2(state_batch, action_batch)
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
-        model1_loss = F.mse_loss(model_output1, next_state_batch)
-        model2_loss = F.mse_loss(model_output2, next_state_batch)
         
         
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
-        (q1_loss+q2_loss + model1_loss+model2_loss).backward()   
+        (q1_loss+q2_loss).backward()   
         self.Q1_optimizer.step()
         self.Q2_optimizer.step()
         
         pi, log_prob, _ = self.policy_net.sample(state_batch)
-        q1_pi, model_output1 = self.Q_net1(state_batch, pi)
-        q2_pi, model_output2 = self.Q_net2(state_batch, pi)
+        q1_pi   = self.Q_net1(state_batch, pi)
+        q2_pi   = self.Q_net2(state_batch, pi)
 
         min_q_pi = torch.min(q1_pi, q2_pi)
         policy_loss = (self.alpha * log_prob - min_q_pi).mean()
