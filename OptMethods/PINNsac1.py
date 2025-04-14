@@ -230,7 +230,52 @@ class SAC:
             log_det = log_det.sum(dim=-1, keepdim=True)
             log_prob = dist.log_prob(x_t) - log_det
             return action, log_prob, mu, log_std, torch.tanh(mu)
+    
+    
+        
+        
+    # def numerical_jacobian(self, x, u, epsilon=1e-6):
+    #     if type(x) == torch.Tensor:
+    #         x = x.detach().cpu().numpy()
+    #     if type(u) == torch.Tensor:
+    #         u = u.detach().cpu().numpy()    
+    #     x = x.astype(float)
+    #     n = x.shape[0]
+    #     # define the function f(x,u)
+    #     def f(x,u):
+    #         g = 10
+    #         m = 1.0
+    #         l = 1.0
+    #         max_speed = 8
+    #         dt = 0.01
+    #         th, thdot = x
+    #         newthdot = thdot + (3 * g / (2 * l) * np.sin(th) + 3.0 / (m * l**2) * u) * dt
+    #         newthdot = np.clip(newthdot, -max_speed, max_speed)
+    #         newth = th + newthdot * dt
+    #         return np.array([newth, newthdot])
+        
+        
+    #     m = f(x, u).shape[0]
+    #     J = np.zeros((m, n))  # df/dx 是 m 行 n 列
 
+    #     for i in range(n):
+    #         x1 = x.copy()
+    #         x2 = x.copy()
+    #         x1[i] -= epsilon
+    #         x2[i] += epsilon
+    #         f1 = f(x1, u)
+    #         f2 = f(x2, u)
+    #         J[:, i] = (f2 - f1) / (2 * epsilon)
+    #     return J
+    
+    def calc_NNdiff(self,x,a,NN):
+        from torch.autograd import grad
+        x = x.requires_grad_(True)
+        a = a.requires_grad_(True)
+        y1,y2 = NN(x,a)
+        dy_dx = grad(outputs=y2,inputs=x,grad_outputs=torch.ones_like(y2),create_graph=True)[0]
+        return dy_dx
+        
     def update(self, batch_size, Info=None):
         x, y, u, r, d = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
@@ -258,6 +303,13 @@ class SAC:
         
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
+        
+        qdiff1 = self.calc_NNdiff(state_batch,action_batch,self.Q_net1)
+        qdiff2 = self.calc_NNdiff(state_batch,action_batch,self.Q_net2)
+        # qdiff1_num = self.numerical_jacobian(state_batch,action_batch)
+        # qdiff2_num = self.numerical_jacobian(state_batch,action_batch)
+        print(qdiff1,qdiff2)
+        
         (q1_loss+q2_loss + model1_loss+model2_loss). backward()   
         self.Q1_optimizer.step()
         self.Q2_optimizer.step()

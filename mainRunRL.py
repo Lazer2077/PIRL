@@ -54,8 +54,8 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'pinn' 'pinnsac' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Ant-v4' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.OPT_METHODS = 'PINNSAC1' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.ENV_NAME = 'Pendulum-v1' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
@@ -75,6 +75,52 @@ ScalingDict = {}
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
 port = 6007
+
+import subprocess
+import platform
+
+def free_port(port: int):
+
+    def get_pid_on_port(port):
+        system = platform.system()
+        try:
+            if system == "Windows":
+                cmd = f'netstat -aon | findstr :{port}'
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                for line in result.stdout.strip().split('\n'):
+                    if 'LISTENING' in line:
+                        parts = line.strip().split()
+                        return parts[-1]  # PID
+            else:
+                cmd = f'lsof -i :{port} | grep LISTEN'
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                for line in result.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]  # PID
+        except Exception as e:
+            print(f"[!] Error getting PID on port {port}: {e}")
+        return None
+
+    def kill_pid(pid):
+        try:
+            system = platform.system()
+            if system == "Windows":
+                subprocess.run(f'taskkill /PID {pid} /F', shell=True)
+            else:
+                subprocess.run(f'kill -9 {pid}', shell=True)
+            print(f"[✔] Killed process {pid} on port {port}")
+        except Exception as e:
+            print(f"[!] Error killing process {pid}: {e}")
+
+    pid = get_pid_on_port(port)
+    if pid:
+        print(f"[!] Port {port} is occupied by PID {pid}. Attempting to kill it...")
+        kill_pid(pid)
+    else:
+        print(f"[✓] Port {port} is free.")
+
+free_port(port)
 if os.name == 'nt':
     cmd_line = '''start /b cmd.exe /k "tensorboard --logdir {} --port {} --reload_interval {} --reload_multifile True"'''.format(
         savePath, port, 10
