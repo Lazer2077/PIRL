@@ -275,6 +275,45 @@ class SAC:
         y1,y2 = NN(x,a)
         dy_dx = grad(outputs=y2,inputs=x,grad_outputs=torch.ones_like(y2),create_graph=True)[0]
         return dy_dx
+    
+    def MPC_rollout(self,state,horizon=10):
+        with torch.no_grad():
+            _, log_prob, action = self.policy_net.sample(state)
+            Q1, next_state1 = self.Q_net1(state, action)
+            Q2, next_state2 = self.Q_net2(state, action)
+            next_state = (next_state1 + next_state2)/2
+            min_Q = torch.min(Q1, Q2)
+            
+            _, log_prob_next, action_next = self.policy_net.sample(next_state)
+            Q1_next, next_state_next1 = self.Q_net1(next_state, action_next)
+            Q2_next, next_state_next2 = self.Q_net2(next_state, action_next)
+            next_state_next = (next_state_next1 + next_state_next2)/2
+            min_Q_next = torch.min(Q1_next, Q2_next)
+            soft_value_next = min_Q_next - self.alpha * log_prob_next
+            
+            for i in range(horizon):
+                reward = min_Q - soft_value_next
+                done = False
+                self.replay_buffer.push((state, next_state, action, reward, done))
+                # next iter 
+                state = next_state
+                next_state = next_state_next
+                action = action_next
+                Q1 = Q1_next
+                Q2 = Q2_next
+                min_Q = torch.min(Q1, Q2)
+                # next action
+                _, log_prob_next, action_next = self.policy_net.sample(next_state)
+                # state_next 
+                Q1_next, next_state_next1 = self.Q_net1(next_state,action_next)
+                Q2_next, next_state_next2 = self.Q_net2(next_state,action_next)
+                next_state_next = (next_state_next1 + next_state_next2)/2
+                min_Q_next = torch.min(Q1_next, Q2_next)
+                soft_value_next = min_Q_next - self.alpha * log_prob_next
+        
+        
+        
+        
         
     def update(self, batch_size, Info=None):
         x, y, u, r, d = self.replay_buffer.sample(batch_size)
@@ -300,15 +339,16 @@ class SAC:
         model1_loss = F.mse_loss(model_output1, next_state_batch)
         model2_loss = F.mse_loss(model_output2, next_state_batch)
         
-        
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         
-        qdiff1 = self.calc_NNdiff(state_batch,action_batch,self.Q_net1)
-        qdiff2 = self.calc_NNdiff(state_batch,action_batch,self.Q_net2)
+        # qdiff1 = self.calc_NNdiff(state_batch,action_batch,self.Q_net1)
+        # qdiff2 = self.calc_NNdiff(state_batch,action_batch,self.Q_net2)
         # qdiff1_num = self.numerical_jacobian(state_batch,action_batch)
         # qdiff2_num = self.numerical_jacobian(state_batch,action_batch)
-        print(qdiff1,qdiff2)
+        # print(qdiff1,qdiff2)
+        
+        
         
         (q1_loss+q2_loss + model1_loss+model2_loss). backward()   
         self.Q1_optimizer.step()
@@ -335,6 +375,8 @@ class SAC:
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
         for target_param, param in zip(self.Q_target_net2.parameters(), self.Q_net2.parameters()):
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
+        if self.alpha.item()<0.3:
+            self.MPC_rollout(state_batch[25])
         return q1_loss.item(), q2_loss.item(), policy_loss.item(), alpha_loss.item(), self.alpha.item()
     
     
@@ -346,7 +388,6 @@ class SAC:
         torch.save(self.Q_target_net1.state_dict(), os.path.join(modelPath, 'Q_target_net1.pth'))
         torch.save(self.Q_target_net2.state_dict(), os.path.join(modelPath, 'Q_target_net2.pth'))
         #torch.save(self.critic_target.state_dict(), os.path.join(savePath, 'critic_target.pth'))
-
         print("====================================")
         print("Model has been saved...")
         print("====================================")
