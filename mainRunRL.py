@@ -60,7 +60,17 @@ args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
 MODEL_NAME = f'{args.OPT_METHODS}_{args.ENV_NAME}'
-Env = gym.make(args.ENV_NAME)
+if args.ENV_NAME == 'SimpleSpeed':
+    from Env import SimpleSpeed
+    
+    if os.name == 'nt':
+        dataPath = r'D:/RL/trainData.mat'
+    else:
+        dataPath = r'/mnt/d/RL/traindata.mat'
+        
+    Env = SimpleSpeed(dataPath, SELECT_PREC = 'Shallowford', SELECT_OBSERVATION='test', options=args.EnvOptions)
+else:
+    Env = gym.make(args.ENV_NAME)
 
 Last_50_reward = 0
 if isinstance(Env.action_space, gym.spaces.Discrete):
