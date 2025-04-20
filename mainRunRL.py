@@ -54,12 +54,11 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'PINNSAC1' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Pendulum-v1' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
-MODEL_NAME = f'{args.OPT_METHODS}_{args.ENV_NAME}'
 if args.ENV_NAME == 'SimpleSpeed':
     from Env import SimpleSpeed
     
@@ -67,21 +66,34 @@ if args.ENV_NAME == 'SimpleSpeed':
         dataPath = r'D:/RL/trainData.mat'
     else:
         dataPath = r'/mnt/d/RL/traindata.mat'
-        
-    Env = SimpleSpeed(dataPath, SELECT_PREC = 'Shallowford', SELECT_OBSERVATION='test', options=args.EnvOptions)
+    Env = SimpleSpeed(dataPath, SELECT_OBSERVATION='poly', options=args.EnvOptions)
+    args.is_discrete = False
+    action_dim = Env.action_dim
+    state_dim = Env.obs_dim  
+
+    ScalingDict = {'actionMax': Env.umax,
+               'actionMin': Env.umin,
+               'xMean': Env.xmean, 
+               'xStd': Env.xstd,
+               }
+    # construct continuous action space on gym 
+    action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
+    
 else:
     Env = gym.make(args.ENV_NAME)
+    if isinstance(Env.action_space, gym.spaces.Discrete):
+        action_space = Env.action_space.n
+        state_dim = Env.observation_space.shape[0]
+        args.is_discrete = True
+    else:  # Box
+        action_space = Env.action_space.shape[0]
+        state_dim = Env.observation_space.shape[0]
+        args.is_discrete = False
+        ScalingDict = {}
 
-Last_50_reward = 0
-if isinstance(Env.action_space, gym.spaces.Discrete):
-    action_dim = Env.action_space.n
-    args.is_discrete = True
-else:  # Box
-    action_dim = Env.action_space.shape[0]
-    args.is_discrete = False
 
-state_dim = Env.observation_space.shape[0]
-ScalingDict = {}
+MODEL_NAME = f'{args.OPT_METHODS}_{args.ENV_NAME}'
+
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
 port = 6007
@@ -142,7 +154,6 @@ else:
 os.system(cmd_line)
 import OptMethods
 def main():
-    args.Env = Env
     if 'ddpg' in args.OPT_METHODS.lower():
         args.exploration_noise = 0.5
         args.dynamic_noise = False
@@ -162,7 +173,8 @@ def main():
         args.valuePhysicalWeight = 0.1# 0.03
         args.policyPhysicalWeight = 0
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
-    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, Env.action_space, ScalingDict, device, args)
+    
+    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
@@ -182,7 +194,7 @@ def main():
                 if i % 50 == 0:  
                     for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
-                    for j in range(min(action_dim, 1)):
+                    for j in range(min(action_space, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                 
 

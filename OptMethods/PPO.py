@@ -248,8 +248,8 @@ if __name__ == "__main__":
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, args.num_envs) + (envs.nObservation,)).to(device)
-    actions = torch.zeros((args.num_steps, args.num_envs) + (envs.nAction,)).to(device)
+    obs = torch.zeros((args.num_steps, args.num_envs) + (envs.obs_dim,)).to(device)
+    actions = torch.zeros((args.num_steps, args.num_envs) + (envs.action_dim,)).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
@@ -326,9 +326,9 @@ if __name__ == "__main__":
             returns = advantages + values
 
         # flatten the batch
-        b_obs = obs.reshape((-1,) + (envs.nObservation,))
+        b_obs = obs.reshape((-1,) + (envs.obs_dim,))
         b_logprobs = logprobs.reshape(-1)
-        b_actions = actions.reshape((-1,) + (envs.nAction,))
+        b_actions = actions.reshape((-1,) + (envs.action_dim,))
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)

@@ -7,6 +7,7 @@ from torch.distributions import Normal, Categorical
 import numpy as np
 from torch.optim import Adam
 from .lib.ReplayBuffer import Replay_buffer
+import gymnasium as gym
 
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
@@ -168,16 +169,18 @@ class SAC:
         self.device = device
         self.alpha = torch.FloatTensor([args.alpha]).to(device)
         self.state_dim = state_dim
-        self.action_dim = action_space.shape[0]
-        self.is_discrete = args.is_discrete
+        if isinstance(action_space, gym.spaces.Discrete):   
+            self.action_dim = action_space.n
+            self.is_discrete = True
+        else:
+            self.action_dim = action_space
+            self.is_discrete = False
+            
         self.automatic_entropy_tuning = args.automatic_entropy_tuning   
         self.replay_buffer = Replay_buffer()
 
-
-        xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
-                            ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
-        xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),
-                           ScalingDict.get('uStd', torch.ones(self.action_dim)).to(device)])
+        xumean = torch.cat([ScalingDict['xMean'].to(device), ScalingDict['uMean'].to(device)])
+        xustd = torch.cat([ScalingDict['xStd'].to(device), ScalingDict['uStd'].to(device)])
 
         self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)

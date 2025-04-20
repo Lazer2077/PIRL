@@ -18,7 +18,16 @@ class SimpleSpeed():
         mu = 0.01
         theta_0 = 0
         C_wind = 0.3606
-        # min p1 v + p2 v^3 + p3 v a
+        
+        C_bat = 216000
+        phi = 0 
+        Vehicle_Rho= 1.205
+        Vehicle_Af=  2.2
+        Vehicle_Cd=  0.306
+        R_bat = 0.07411328
+        kw = Vehicle_Rho* Vehicle_Af*Vehicle_Cd
+        n = 24
+        U_oc = 380.4960
         p1 = mu*m*g*np.cos(theta_0) + m*g*np.sin(theta_0)
         p2 = C_wind
         p3 = m
@@ -27,16 +36,22 @@ class SimpleSpeed():
                     'mu': mu,
                     'theta_0': theta_0,
                     'C_wind': C_wind,
+                    'C_bat': C_bat,
+                    'phi': phi,
+                    'kw': kw,
+                    'R_bat': R_bat,
+                    'U_oc': U_oc,
+                    'n': n,
                     'p1': p1,
                     'p2': p2,
-                    'p3': p3}
+                    'p3': p3,
+                  }
 
         # create a dummy preceding vehicle speed
         self.dt = 0.1
             
         # objective function weights
         self.w1 = 1e-4
-        # self.w1 = 1
         self.w2 = 1
         self.w3 = 0
         # constraints
@@ -46,8 +61,8 @@ class SimpleSpeed():
         self.hlb = 0.5
         self.vmax = 25
         self.vmin = 0
-        self.amax = 3
-        self.amin = -3
+        self.umax = 3
+        self.umin = -3
         self.dlbFunc = lambda v: self.dstop + self.hlb*v
         self.dataPath = dataPath
         self.SELECT_OBSERVATION = SELECT_OBSERVATION
@@ -82,9 +97,6 @@ class SimpleSpeed():
     #def updatePrecedingVehicle(self, SELECT_PREC_ID=None, DATA_FILTER=None, IS_INIT=False, T_BEG=None, T_HORIZON=None, INIT_STATE=None):
     def updatePrecedingVehicle(self, options={}):
         # parser options
-        if 'EnableRandomVehicle' in options.keys():
-            if not options['EnableRandomVehicle'] and not self.IS_INIT:
-                return
         if 'selectPrecedingId' in options.keys():
             SELECT_PREC_ID = options['selectPrecedingId']
         else:
@@ -119,18 +131,17 @@ class SimpleSpeed():
         else:
             RAND_VEH = False
 
-        if self.IS_INIT:
-            if self.OLD_FASHION:
-                self.TrafficData = scipy.io.loadmat(self.dataPath)
-                # remove not needed keys
-                del self.TrafficData['__header__']
-                del self.TrafficData['__version__']
-                del self.TrafficData['__globals__']
-                self.vehNames = sorted(self.TrafficData)
-            else:
-                # print(self.dataPath)
-                self.TrafficData = h5py.File(self.dataPath, 'r')
-                self.vehNames = np.array(sorted(self.TrafficData))[1:]
+        if self.OLD_FASHION:
+            self.TrafficData = scipy.io.loadmat(self.dataPath)
+            # remove not needed keys
+            del self.TrafficData['__header__']
+            del self.TrafficData['__version__']
+            del self.TrafficData['__globals__']
+            self.vehNames = sorted(self.TrafficData)
+        else:
+            # print(self.dataPath)
+            self.TrafficData = h5py.File(self.dataPath, 'r')
+            self.vehNames = np.array(sorted(self.TrafficData))[1:]
 
             # randomdize vehicle
             # if speed is almost all zero, we want to skip it to next time or speed
@@ -161,11 +172,7 @@ class SimpleSpeed():
                         if DataFilterFunc is None:
                             vehId = np.random.choice(self.vehNames)
                         else:
-
-                            # now we assume this datafilter is a function 
-                            if self.IS_INIT:
-                                self.VehNamesFiltered = DataFilterFunc(self.vehNames) # get the vehicle sthat satisfy filter condition
-                            # then random select from the candidates
+                            self.VehNamesFiltered = DataFilterFunc(self.vehNames) # get the vehicle sthat satisfy filter condition
                             vehId = np.random.choice(self.VehNamesFiltered)
                         SELECT_PREC_ID = int(vehId.split('_')[1])
                     else:
@@ -262,8 +269,7 @@ class SimpleSpeed():
             df = dp[-1]-30 #dp[-1]-dfollow0
             vf = vp[-1]
             af = 0
-        else:
-            pass
+
         self.SELECT_PREC_ID = SELECT_PREC_ID
         self.vehId = vehId
         
@@ -303,20 +309,20 @@ class SimpleSpeed():
 
         # internal state to track the current position and speed of this vehicle
         self.state = torch.FloatTensor([self.d0, self.v0])
-        self.nState = len(self.state)
+        self.state_dim = len(self.state)
         self.info = {}
         self.k = 0
         
         self.smin = np.array([self.dp[0]-self.dmax-1, self.vmin])
         self.smax = np.array([self.dp[-1]-self.dmin+1, self.vmax])
 
-        self.nState = len(self.state)
+        self.state_dim = len(self.state)
 
         #self.observation, self.nObservation = self.resetObservation()
         self.observation = self.state2Observation(self.state)[0,:]
-        self.nObservation = len(self.observation)
+        self.obs_dim = len(self.observation)
 
-        self.nAction = 1
+        self.action_dim = 1
         
         if self.SELECT_OBSERVATION == 'exp':
             # df, v, k
@@ -334,11 +340,11 @@ class SimpleSpeed():
         self.umean = torch.FloatTensor([0])
         self.ustd = torch.FloatTensor([1])
 
-        return self.observation
+        return self.observation, None
 
     def getNextState(self, state, action):
         # make sure np array is N-by-1
-        state = state.reshape(-1,self.nState)
+        state = state.reshape(-1,self.state_dim)
         action = action.reshape(-1,1)
 
         # np array input
@@ -362,7 +368,7 @@ class SimpleSpeed():
         # make sure np array is N-by-1
         if not torch.is_tensor(state):
             state = torch.FloatTensor(state)
-        state = state.reshape(-1,self.nState)
+        state = state.reshape(-1,self.state_dim)
 
         # handle different k input
         if k is None:
@@ -415,10 +421,10 @@ class SimpleSpeed():
     def observation2state(self, observation, vehId=None, tBeg=None, PrecInfo=None):
         # this is the function used for postprocessing and plotting
         # plotting ONLY!!!
-        observation = observation.reshape(-1,self.nObservation)
+        observation = observation.reshape(-1,self.obs_dim)
 
         nStep = observation.shape[0]
-        state = torch.zeros((nStep,self.nState))
+        state = torch.zeros((nStep,self.state_dim))
 
         if PrecInfo is not None:
             dp = torch.FloatTensor(PrecInfo['d'])
@@ -456,17 +462,16 @@ class SimpleSpeed():
     def step(self, action):
         info = {}
         # clip action
-        dmin = self.dlbFunc(self.vfinal)
-        obs = self.observation.reshape((-1,self.nObservation))
-        if len(obs[obs[:,0] < dmin,0]) > 0:
-                action[obs[:,0] < dmin] = max(-0.5*(dmin-obs[obs[:,0] < dmin,0]),self.amin)
+        # dmin = self.dlbFunc(self.vfinal)
+        obs = self.observation.reshape((-1,self.obs_dim))
 
-        state = self.state
+
+        # state = self.state
         stateNext = self.getNextState(self.state, action)
         self.state = stateNext[0,:]
 
         reward = self.getReward(self.observation, action)
-        obs = self.observation.reshape((-1,self.nObservation))
+        obs = self.observation.reshape((-1,self.obs_dim))
         df = obs[:,0]
         v = obs[:,1]
         k = obs[:,2]
@@ -474,33 +479,25 @@ class SimpleSpeed():
         vftol = 1
         terminated = (self.dp[-1]-df>=self.df-dftol) & (self.dp[-1]-df<=self.df+dftol) & (v>=self.vf-vftol) & (v<=self.vf+vftol) & (k == self.N)
         truncated = (v < self.vmin) | (k == self.N)
- 
         observationNext = self.calcDyn(self.observation, action, IS_OBS=True)
-
         self.k = self.k + 1
         #observationNext = self.state2Observation(self.state)
-
         self.observation = observationNext[0,:]
+        return observationNext[0,:], reward[0], terminated[0], truncated[0], None
 
-        return observationNext[0,:], reward[0], terminated[0], truncated[0]
-  
-    def sampleAction(self):
-        action = torch.distributions.uniform.Uniform(self.amin, self.amax).sample([1]).reshape(-1,self.nAction)
-        
-        return action
     
     def replayEpisode(self, batch, PrecInfo=None):
         # PrecInfo: t, dp, vp
 
         observationBatch = torch.FloatTensor(batch[0])
-        actionBatch = torch.FloatTensor(batch[2]).reshape(-1,self.nAction)
+        actionBatch = torch.FloatTensor(batch[2]).reshape(-1,self.action_dim)
 
         if PrecInfo is None:
             PrecInfo = {'t': self.t,
                         'd': self.dp,
                         'v': self.vp}
         #     df_final = self.df_final
-        #     vfinal = self.vfinal
+            # vfinal = self.vfinal
         # else:
         df_final, vfinal = self.getDesiredFinalStates(observationBatch[-1,:].reshape(1,-1), observationBatch[-1,2])
         df_final = df_final.numpy()
@@ -579,20 +576,17 @@ class SimpleSpeed():
         return df_final, vfinal
 
     def getReward(self, xVar, action, IS_OBS=True):
-        Tdict = self.Utils_c.checkDtype(xVar, action)
-
-        action = action.reshape((-1,self.nAction))
+        action = action.reshape((-1,self.action_dim))
         a = action[:,0]
-
         if not IS_OBS:
-            xVar = xVar.reshape((-1,self.nState))
+            xVar = xVar.reshape((-1,self.state_dim))
             d = xVar[:,0]
             v = xVar[:,1]     
 
             df = (self.dmin+self.dmax)/2
             k = 0
         else:        
-            obs = xVar.reshape((-1,self.nObservation))
+            obs = xVar.reshape((-1,self.obs_dim))
 
             df = obs[:,0]
             v = obs[:,1]
@@ -612,18 +606,9 @@ class SimpleSpeed():
         #     pow = 500
         # else:
         #     pow = (p1*v+p2*(v**3)+p3*(v*a))
-        pow=Tdict['func']['clip']((p1*v+p2*(v**3)+p3*(v*a)),0,10e5)   
-        reward =  -v*self.w1/(pow+500) +self.w2*(a**2) 
-        # print("MPG:",-reward)
-        # print("df_final ",df_final )
-        
-        # print("Clipped Power: ",Tdict['func']['sigmoid']((p1*v+p2*(v**3)+p3*(v*a)),0))
-        # print("df_calc ",dfCalc)
-        cf_max = Tdict['func']['sigmoid']((df - self.dmax),10)*((dfCalc - self.dmax)**2)
-        cf_min = Tdict['func']['sigmoid']((dmin - df),10)*((dfCalc - dmin)**2)
-        terminal =Tdict['func']['relu'](k-self.N+1)*(0.5*(dfCalc-df_final)**2+100*(v-vfinal))
-        reward = reward + cf_max+ cf_min+terminal
-       
+        pow=(p1*v+p2*(v**3)+p3*(v*a))
+        reward = self.w1*(pow) +self.w2*(a**2) 
+
         # print("Soft min following:",cf_min)
         # print("Soft max following:",cf_max)
         # print("Terminal Constrains:",terminal)
@@ -638,18 +623,17 @@ class SimpleSpeed():
         return reward
 
     def calcDyn(self, xVar, action, IS_OBS=True):
-        Tdict = self.Utils_c.checkDtype(xVar, action)
-        action = action.reshape((-1,self.nAction))
+        action = action.reshape((-1,self.action_dim))
         a = action[:,0].reshape((-1,1))
         if not IS_OBS:
-            xVar = xVar.reshape((-1,self.nState))
+            xVar = xVar.reshape((-1,self.state_dim))
             d = xVar[:,0].reshape((-1,1))
             v = xVar[:,1].reshape((-1,1))     
 
-            dyn = Tdict['func']['hstack'](d+self.dt*v,
-                                    Tdict['func']['clip'](v+self.dt*a, self.vmin, self.vmax))
+            dyn = torch.hstack((d+self.dt*v,
+                                    torch.clip(v+self.dt*a, self.vmin, self.vmax)))
         else:        
-            obs = xVar.reshape((-1,self.nObservation))
+            obs = xVar.reshape((-1,self.obs_dim))
 
             df = obs[:,0].reshape((-1,1))
             v = obs[:,1].reshape((-1,1))
@@ -657,8 +641,8 @@ class SimpleSpeed():
             dyn = 0
             if self.SELECT_OBSERVATION == 'exp':      
                 dpDelta = self.__dpFunc(k+1)-self.__dpFunc(k)
-                dyn = Tdict['func']['hstack']((dpDelta+df-self.dt*v),
-                                    Tdict['func']['clip'](v+self.dt*a, self.vmin, self.vmax),
+                dyn = torch.hstack((dpDelta+df-self.dt*v),
+                                    torch.clip(v+self.dt*a, self.vmin, self.vmax),
                                     k+1)
             elif self.SELECT_OBSERVATION == 'poly':                
                 def __dpFunc(obs, k):      
@@ -671,24 +655,24 @@ class SimpleSpeed():
                                 continue
                             # if last interval
                             if i == self.nIntvl-1:
-                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(Tdict['func']['sigmoid']((k+0.5-i*self.nIntvlIdx),20))
+                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx)))
                             else:
-                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(Tdict['func']['sigmoid']((k+0.5-i*self.nIntvlIdx),20)-Tdict['func']['sigmoid']((k+0.5-(i+1)*self.nIntvlIdx),20))
+                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx))-torch.sigmoid((k+0.5-(i+1)*self.nIntvlIdx)))
                     return dpCalc
                 
                 dpDelta = -__dpFunc(obs,k)
-                dyn = Tdict['func']['hstack']((df-self.dt*v),
-                                    Tdict['func']['clip'](v+self.dt*a, self.vmin, self.vmax),
-                                    k+1)
+                dyn = torch.hstack([(df-self.dt*v),
+                                    torch.clip(v+self.dt*a, self.vmin, self.vmax),
+                                    k+1])
                 for i in range(self.nIntvl):
                     for j in range(self.nPoly+1):
                         # if not last
                         if j != self.nPoly:
-                            dyn = Tdict['func']['hstack'](dyn,
-                                        obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(k+2)**(self.nPoly-j)/(k+1)**(self.nPoly-j))
+                            dyn = torch.hstack([dyn,
+                                        obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(k+2)**(self.nPoly-j)/(k+1)**(self.nPoly-j)])
                         else:
-                            dyn = Tdict['func']['hstack'](dyn,
-                                        obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1)) + obs[:,3+i*(self.nPoly+1)+j-1].reshape((-1,1))*((k+2)/(k+1)-1))
+                            dyn = torch.hstack([dyn,
+                                        obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1)) + obs[:,3+i*(self.nPoly+1)+j-1].reshape((-1,1))*((k+2)/(k+1)-1)])
                 dpDelta = dpDelta + __dpFunc(dyn, k+1)
                 dyn[:,0:1] = (dpDelta+df-self.dt*v)
         
