@@ -36,7 +36,7 @@ parser.add_argument('--alpha', type=float, default=0.2, metavar='G',
                             term against the reward (default: 0.2)')
 parser.add_argument('--automatic_entropy_tuning', type=bool, default=True, metavar='G',
                     help='Automaically adjust α (default: False)')
-parser.add_argument('--eval_interval', type=int, default=10,
+parser.add_argument('--eval_interval', type=int, default=20,
                     help='Evaluates a policy a policy every X episode (default: 10)')
 parser.add_argument('--start_steps', type=int, default=10000, metavar='N',
                     help='Steps sampling random actions (default: 10000)')
@@ -54,7 +54,7 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC1' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
@@ -71,10 +71,11 @@ if args.ENV_NAME == 'SimpleSpeed':
     action_dim = Env.action_dim
     state_dim = Env.obs_dim  
 
-    ScalingDict = {'actionMax': Env.umax,
-               'actionMin': Env.umin,
-               'xMean': Env.xmean, 
-               'xStd': Env.xstd,
+    ScalingDict = {
+            'actionMax': Env.umax,
+            'actionMin': Env.umin,
+            'xMean': torch.zeros(state_dim), 
+               'xStd': torch.ones(state_dim),
                }
     # construct continuous action space on gym 
     action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
@@ -167,14 +168,9 @@ def main():
     elif 'sac' in args.OPT_METHODS.lower():
         args.policy_type = 'Gaussian'
 
-    else:
-        pass
-    if 'pinn' in args.OPT_METHODS.lower():
-        args.valuePhysicalWeight = 0.1# 0.03
-        args.policyPhysicalWeight = 0
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     
-    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
+    agent = getattr(OptMethods, '{}'.format(args.OPT_MTHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
@@ -188,13 +184,14 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                agent.replay_buffer.push((state, next_state, action, reward, float(done))) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                x_ref = Env.dp
+                agent.replay_buffer.push((state, next_state, action, reward, float(done),x_ref)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
-                if i % 50 == 0:  
+                if i % 10 == 0:  
                     for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
-                    for j in range(min(action_space, 1)):
+                    for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                 
 
@@ -230,13 +227,14 @@ def main():
                         episode_reward += reward
                         done=terminated or truncated
 
-                        EvalReplayBuffer.push((state, next_state, action, reward, float(done)))
+                        EvalReplayBuffer.push((state, next_state, action, reward, float(done),ref))
                         state = next_state
                         if done:
                             break
                     avg_reward += episode_reward
                     #plotResults(agent, i, t)
                 avg_reward /= episodes
+                agent.save(savePath)
                 iStepEvaluation += 1
                 writer.add_scalar('Test/Reward', avg_reward, i)
                 print("----------------------------------------")
