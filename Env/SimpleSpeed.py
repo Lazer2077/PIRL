@@ -324,7 +324,7 @@ class SimpleSpeed():
 
         self.action_dim = 1
         
-        if self.SELECT_OBSERVATION == 'exp':
+        if self.SELECT_OBSERVATION == 'none':
             # df, v, k
             self.xmean = torch.FloatTensor([50., 5., 50.])
             self.xstd = torch.FloatTensor([10., 5., 30])   
@@ -388,15 +388,10 @@ class SimpleSpeed():
         kClip = torch.minimum(k, torch.FloatTensor([self.N])).int()
         dpt = torch.FloatTensor(self.dp)[kClip]
         vpt = torch.FloatTensor(self.vp)[kClip]
-        if self.SELECT_OBSERVATION == 'exp':
-            observation = torch.column_stack((dpt-state[:,0],
-                                state[:,1],
-                                k))
-        elif self.SELECT_OBSERVATION == 'test':
-            observation = torch.column_stack((dpt-state[:,0],
-                                state[:,1],
-                                k,
-                                vpt-state[:,1]))
+        if self.SELECT_OBSERVATION == 'none':
+            observation = torch.column_stack((state[:,0],
+                                state[:,1]))
+
         elif self.SELECT_OBSERVATION == 'poly':
             # idx = torch.minimum(torch.floor(k/self.nIntvlIdx),torch.tensor(self.nIntvl-1)).int()
             
@@ -411,8 +406,8 @@ class SimpleSpeed():
             # fArr [p0,p1,p2,p3] -> p3*t^3+p2*t^2+p1*t+p0
             for i in range(self.nIntvl):
                 for j in range(self.nPoly):
-                    observation[:,2+i*(self.nPoly+1)+j] = self.fArr[i][self.nPoly-j]*np.power(self.dt*(k+1), self.nPoly-j)
-                observation[:,2+i*(self.nPoly+1)+self.nPoly] = observation[:,2+i*(self.nPoly+1)+self.nPoly-1] + self.fArr[i][0]
+                    observation[:,self.state_dim+i*(self.nPoly+1)+j] = self.fArr[i][self.nPoly-j]*np.power(self.dt*(k+1), self.nPoly-j)
+                observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly] = observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly-1] + self.fArr[i][0]
                 pass
             pass
         return observation
@@ -516,7 +511,6 @@ class SimpleSpeed():
         else:
             #vfinal = self.vp[-1]
             #vfinal = 15.08100945 #((self.dp[-1]-self.dp[-2])/self.dt)
-            kCalc = k.reshape((-1,1)) # this is m-by-1 vector that used for calculation
             dpN = 0	# dp(N)
             dpN1 = 0 # dp(N-1)
             for j in range(self.nPoly+1):
@@ -545,7 +539,7 @@ class SimpleSpeed():
 
             d = obs[:,0]
             v = obs[:,1]
-            k = obs[:,2]
+            k = self.k
 
         p1 = self.Veh['p1']
         p2 = self.Veh['p2']
@@ -553,14 +547,10 @@ class SimpleSpeed():
 
         # penalize k==self.N, which is the last state
 
-        df_final, vfinal = self.getDesiredFinalStates(obs, k)
-        vp = vfinal
-        dmin = self.dlbFunc(vp)
-        dfCalc = df #Tdict['func']['clip'](df, -10, 100)
-        # if (p1*v+p2*(v**3)+p3*(v*a)) <0 :
-        #     pow = 500
-        # else:
-        #     pow = (p1*v+p2*(v**3)+p3*(v*a))
+        # df_final, vfinal = self.getDesiredFinalStates(obs, k)
+        dp = self.dp[self.k]
+        vp = self.vp[self.k]
+
         pow=(p1*v+p2*(v**3)+p3*(v*a))
         reward = self.w1*(pow) +self.w2*(a**2) 
         
@@ -570,9 +560,6 @@ class SimpleSpeed():
         if not IS_OBS:
             return reward
         
-        if k.shape[0] == 1:
-            self.df_final = df_final[-1]
-            self.vfinal = vfinal[-1]
         return reward
 
     def calcDyn(self, xVar, action, IS_OBS=True):
@@ -590,13 +577,9 @@ class SimpleSpeed():
 
             d = obs[:,0].reshape((-1,1))
             v = obs[:,1].reshape((-1,1))
-            k = obs[:,2].reshape((-1,1))
-            dyn = 0
-            if self.SELECT_OBSERVATION == 'exp':      
-                dpDelta = self.__dpFunc(k+1)-self.__dpFunc(k)
-                dyn = torch.hstack((dpDelta+d-self.dt*v),
-                                    torch.clip(v+self.dt*a, self.vmin, self.vmax),
-                                    k+1)
+            if self.SELECT_OBSERVATION == 'none':      
+                dyn = torch.hstack([(d+self.dt*v),
+                                    torch.clip(v+self.dt*a, self.vmin, self.vmax)])
             elif self.SELECT_OBSERVATION == 'poly':                
                 # def __dpFunc(obs, k):      
                 #     # use sigmoid to create lookup table based on k
@@ -614,6 +597,7 @@ class SimpleSpeed():
                 #     return dpCalc
                 
                 # dpDelta = -__dpFunc(obs,k)
+                k = self.k
                 dyn = torch.hstack([(d + self.dt*v),
                                     torch.clip(v+self.dt*a, self.vmin, self.vmax)])
                 for i in range(self.nIntvl):

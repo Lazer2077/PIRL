@@ -54,10 +54,27 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC1' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
+
+if 'ddpg' in args.OPT_METHODS.lower():
+    args.exploration_noise = 0.5
+    args.dynamic_noise = False
+    args.batch_size = 100
+    args.gamma = 1
+    args.update_iteration = 200
+    args.buffer_warm_size = 1000
+    args.actor_learning_rate = 1e-4
+    args.critic_learning_rate = 1e-3
+if 'sac' in args.OPT_METHODS.lower():
+    args.policy_type = 'Gaussian'
+    
+if 'ref' in args.OPT_METHODS.lower():
+    obs_type = 'none'
+else:
+    obs_type = 'poly'
 
 if args.ENV_NAME == 'SimpleSpeed':
     from Env import SimpleSpeed
@@ -66,7 +83,7 @@ if args.ENV_NAME == 'SimpleSpeed':
         dataPath = r'D:/RL/trainData.mat'
     else:
         dataPath = r'/mnt/d/RL/traindata.mat'
-    Env = SimpleSpeed(dataPath, SELECT_OBSERVATION='poly', options=args.EnvOptions)
+    Env = SimpleSpeed(dataPath, SELECT_OBSERVATION=obs_type, options=args.EnvOptions)
     args.is_discrete = False
     action_dim = Env.action_dim
     state_dim = Env.obs_dim  
@@ -75,7 +92,7 @@ if args.ENV_NAME == 'SimpleSpeed':
             'actionMax': Env.umax,
             'actionMin': Env.umin,
             'xMean': torch.zeros(state_dim), 
-               'xStd': torch.ones(state_dim),
+            'xStd': torch.ones(state_dim),
                }
     # construct continuous action space on gym 
     action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
@@ -155,18 +172,9 @@ else:
 os.system(cmd_line)
 import OptMethods
 def main():
-    if 'ddpg' in args.OPT_METHODS.lower():
-        args.exploration_noise = 0.5
-        args.dynamic_noise = False
-        args.batch_size = 100
-        args.gamma = 1
-        args.update_iteration = 200
-        args.buffer_warm_size = 1000
-        args.actor_learning_rate = 1e-4
-        args.critic_learning_rate = 1e-3
-        pass
-    elif 'sac' in args.OPT_METHODS.lower():
-        args.policy_type = 'Gaussian'
+
+    # if 'ref' in args.OPT_METHODS.lower():
+        
 
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     
@@ -182,14 +190,12 @@ def main():
             episode_reward = 0
             for t in count():
                 # concat dp and env.k
-                ref = torch.cat([dp, Env.k], dim=-1)
-                  
-                action = agent.select_action(state, ref=ref)
+                dp[-1] = Env.k
+                action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                x_ref = Env.dp
-                agent.replay_buffer.push((state, next_state, action, reward, float(done),x_ref)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  
@@ -225,15 +231,13 @@ def main():
                     ref = Env.dp
                     episode_reward = 0
                     done = False
-                    ref = torch.cat([dp, Env.k], dim=-1)
-                    
+                   
                     for t in count():
+                        ref[-1] = Env.k
                         action = agent.select_action(state, ref=ref)
-
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward
                         done=terminated or truncated
-
                         EvalReplayBuffer.push((state, next_state, action, reward, float(done),ref))
                         state = next_state
                         if done:

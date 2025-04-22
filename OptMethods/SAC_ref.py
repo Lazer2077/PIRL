@@ -32,13 +32,15 @@ class LSTMWithTimeIndex(nn.Module):
         )
         self.fc = nn.Linear(hidden_dim, output_dim)
         
-    def forward(self, x, t_index):
+    def forward(self,xt):
         """
         x:        [B, T, 150]        -- batch of 150-dim sequence
         t_index:  [B, T, 1]          -- corresponding time indices
         return:   [B, 16]            -- 16-dimensional output per sequence
         """
-        xt = torch.cat([x, t_index], dim=-1)  # [B, T, 151]
+        # convert xt to tensor 
+        if xt.ndim == 2:
+            xt = xt.unsqueeze(1)
         out, _ = self.lstm(xt)                # out: [B, T, hidden_dim]
         last_out = out[:, -1, :]              # 取最后一个时间步输出 [B, hidden_dim]
         return self.fc(last_out)              # 映射到16维
@@ -237,6 +239,7 @@ class SAC:
 
     def select_action(self, state, evaluate=False, ref=None):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
+        ref = torch.FloatTensor(ref).to(self.device).unsqueeze(0).unsqueeze(0)
         if evaluate is False:
             action, _, _ = self.policy_net.sample(state, ref)
         else:
@@ -271,7 +274,7 @@ class SAC:
         done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
         ref_batch = torch.FloatTensor(ref).to(self.device)
         with torch.no_grad():
-            next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
+            next_action, next_log_pi, _= self.policy_net.sample(next_state_batch,ref_batch)
             q1_next = self.Q_target_net1(next_state_batch, next_action, ref_batch)
             q2_next = self.Q_target_net2(next_state_batch, next_action, ref_batch)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
@@ -291,9 +294,9 @@ class SAC:
         self.Q1_optimizer.step()
         self.Q2_optimizer.step()
         
-        pi, log_prob, _ = self.policy_net.sample(state_batch)
-        q1_pi   = self.Q_net1(state_batch, pi)
-        q2_pi   = self.Q_net2(state_batch, pi)
+        pi, log_prob, _ = self.policy_net.sample(state_batch,ref_batch)
+        q1_pi   = self.Q_net1(state_batch, pi,ref_batch)
+        q2_pi   = self.Q_net2(state_batch, pi,ref_batch)
 
         min_q_pi = torch.min(q1_pi, q2_pi)
         policy_loss = (self.alpha * log_prob - min_q_pi).mean()
