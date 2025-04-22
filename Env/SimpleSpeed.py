@@ -53,17 +53,18 @@ class SimpleSpeed():
         # objective function weights
         self.w1 = 1e-4
         self.w2 = 1
-        self.w3 = 0
+        self.w3 = 1e-1
+        self.w4 = 1e-1
+        self.w5 = 1
         # constraints
-        self.dmax = 50
-        self.dmin = 10
-        self.dstop = 1
+        self.dmax = 80
+        self.dmin = 1
         self.hlb = 0.5
         self.vmax = 25
         self.vmin = 0
         self.umax = 3
         self.umin = -3
-        self.dlbFunc = lambda v: self.dstop + self.hlb*v
+        self.dlbFunc = lambda v: self.dmin + self.hlb*v
         self.dataPath = dataPath
         self.SELECT_OBSERVATION = SELECT_OBSERVATION
         if 'EnableOldFashion' in options.keys():
@@ -524,41 +525,53 @@ class SimpleSpeed():
     
         return df_final, vfinal
 
+    def getTerminalReward(self, xVar, action):
+        
+        if self.k == self.N:
+            action = action.reshape((-1,self.action_dim))
+            obs = xVar.reshape((-1,self.obs_dim))
+            d = obs[:,0]
+            v = obs[:,1]
+            
+            df = self.dp[-1]-d
+            vf = self.vp[-1]
+            dmin = self.dlbFunc(vf)
+            reward = self.w5*(df-dmin)**2 +self.w6*(vf-v)**2
+        else:
+            reward = 0
+        return reward 
+        
+    
     def getReward(self, xVar, action, IS_OBS=True):
         action = action.reshape((-1,self.action_dim))
         a = action[:,0]
-        if not IS_OBS:
-            xVar = xVar.reshape((-1,self.state_dim))
-            d = xVar[:,0]
-            v = xVar[:,1]     
+       
+        obs = xVar.reshape((-1,self.obs_dim))
 
-            df = (self.dmin+self.dmax)/2
-            k = 0
-        else:        
-            obs = xVar.reshape((-1,self.obs_dim))
-
-            d = obs[:,0]
-            v = obs[:,1]
-            k = self.k
+        d = obs[:,0]
+        v = obs[:,1]
+        k = self.k
 
         p1 = self.Veh['p1']
         p2 = self.Veh['p2']
         p3 = self.Veh['p3']
-
         # penalize k==self.N, which is the last state
-
         # df_final, vfinal = self.getDesiredFinalStates(obs, k)
         dp = self.dp[self.k]
         vp = self.vp[self.k]
 
+        df = dp-d 
+        vf = vp-v
+        
+        df_upper_penalty = max(df-self.dmax,0)
+        df_lower_penalty = max(self.dmin-df,0)
+
         pow=(p1*v+p2*(v**3)+p3*(v*a))
         reward = self.w1*(pow) +self.w2*(a**2) 
-        
-        
+        reward = self.w3*df_upper_penalty**2 + self.w4*df_lower_penalty**2
+        # reward = reward + self.getTerminalReward(xVar, action)
         reward = -reward
         # print("Final rewards",reward)
-        if not IS_OBS:
-            return reward
         
         return reward
 
