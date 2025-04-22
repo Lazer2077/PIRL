@@ -70,21 +70,22 @@ class GaussianPolicy(nn.Module):
             self.action_bias = torch.FloatTensor(
                 (action_space.high + action_space.low) / 2.)
 
-    def forward(self, state, ref):
+    def forward(self, state, ref=None):
         x = F.relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
         if ref is not None:
             ref_feature = self.lstm(ref)
             x = torch.cat([x, ref_feature], dim=-1)
+            x = F.relu(self.linear2(x))
             x = F.relu(self.linear3(x))
-        
+        else:
+            x = F.relu(self.linear2(x))
         mean = self.mean_linear(x)
         log_std = self.log_std_linear(x)
         log_std = torch.clamp(log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
         return mean, log_std
 
-    def sample(self, state):
-        mean, log_std = self.forward(state)
+    def sample(self, state, ref=None):
+        mean, log_std = self.forward(state, ref)
         std = log_std.exp()
         normal = Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
@@ -127,7 +128,7 @@ class DeterministicPolicy(nn.Module):
             self.action_bias = torch.FloatTensor(
                 (action_space.high + action_space.low) / 2.)
 
-    def forward(self, state):
+    def forward(self, state, ref=None):
         x = F.relu(self.linear1(state))
         if self.is_ref:
             x = F.relu(self.linear2(x))
@@ -135,7 +136,7 @@ class DeterministicPolicy(nn.Module):
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
         return mean
 
-    def sample(self, state):
+    def sample(self, state, ref=None):
         mean = self.forward(state)
         noise = self.noise.normal_(0., std=0.1)
         noise = noise.clamp(-0.25, 0.25)
@@ -234,12 +235,12 @@ class SAC:
             self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space, self.is_ref).to(self.device)
         self.policy_optimizer = Adam(self.policy_net.parameters(), lr=args.learning_rate)
 
-    def select_action(self, state, evaluate=False):
+    def select_action(self, state, evaluate=False, ref=None):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
         if evaluate is False:
-            action, _, _ = self.policy_net.sample(state)
+            action, _, _ = self.policy_net.sample(state, ref)
         else:
-            _, _, action = self.policy_net.sample(state)
+            _, _, action = self.policy_net.sample(state, ref)
         return action.detach().cpu().numpy()[0]
 
     def evaluate(self, state):
@@ -262,23 +263,23 @@ class SAC:
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
     def update(self, batch_size, Info=None):
-        x, y, u, r, d = self.replay_buffer.sample(batch_size)
+        x, y, u, r, d, ref = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
         reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
         done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
-
+        ref_batch = torch.FloatTensor(ref).to(self.device)
         with torch.no_grad():
             next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-            q1_next = self.Q_target_net1(next_state_batch, next_action)
-            q2_next = self.Q_target_net2(next_state_batch, next_action)
+            q1_next = self.Q_target_net1(next_state_batch, next_action, ref_batch)
+            q2_next = self.Q_target_net2(next_state_batch, next_action, ref_batch)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
 
-        qf1 = self.Q_net1(state_batch, action_batch)
-        qf2 = self.Q_net2(state_batch, action_batch)
+        qf1 = self.Q_net1(state_batch, action_batch, ref_batch)
+        qf2 = self.Q_net2(state_batch, action_batch, ref_batch)
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)

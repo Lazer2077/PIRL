@@ -170,7 +170,7 @@ def main():
 
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     
-    agent = getattr(OptMethods, '{}'.format(args.OPT_MTHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
+    agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
@@ -178,9 +178,13 @@ def main():
     for i in range(1, args.max_episode):
             episode_steps = 0
             state, _ = Env.reset()
+            dp = Env.dp
             episode_reward = 0
             for t in count():
-                action = agent.select_action(state)
+                # concat dp and env.k
+                ref = torch.cat([dp, Env.k], dim=-1)
+                  
+                action = agent.select_action(state, ref=ref)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
@@ -218,10 +222,13 @@ def main():
                 episodes = 10
                 for _  in range(episodes):
                     state, _ = Env.reset()
+                    ref = Env.dp
                     episode_reward = 0
                     done = False
+                    ref = torch.cat([dp, Env.k], dim=-1)
+                    
                     for t in count():
-                        action = agent.select_action(state)
+                        action = agent.select_action(state, ref=ref)
 
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward
