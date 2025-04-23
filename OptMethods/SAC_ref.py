@@ -18,7 +18,7 @@ def weights_init_(m):
         torch.nn.init.constant_(m.bias, 0)
 
 class LSTMWithTimeIndex(nn.Module):
-    def __init__(self, input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=16, num_layers=1):
+    def __init__(self, input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1):
         super().__init__()
         self.input_dim = input_dim
         self.time_index_dim = time_index_dim
@@ -36,7 +36,7 @@ class LSTMWithTimeIndex(nn.Module):
         """
         x:        [B, T, 150]        -- batch of 150-dim sequence
         t_index:  [B, T, 1]          -- corresponding time indices
-        return:   [B, 16]            -- 16-dimensional output per sequence
+        return:   [B, 64]            -- 64-dimensional output per sequence
         """
         # convert xt to tensor 
         if xt.ndim == 2:
@@ -52,8 +52,8 @@ class GaussianPolicy(nn.Module):
         self.is_ref = is_ref
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         if self.is_ref:
-            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=16, num_layers=1)
-            self.linear2 = nn.Linear(hidden_dim+16, hidden_dim)
+            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1)
+            self.linear2 = nn.Linear(hidden_dim+32, hidden_dim)
             self.linear3 = nn.Linear(hidden_dim, hidden_dim)
         else:
             self.linear2 = nn.Linear(hidden_dim, hidden_dim)
@@ -112,7 +112,7 @@ class DeterministicPolicy(nn.Module):
         self.is_ref = is_ref
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         if self.is_ref:
-            self.linear2 = nn.Linear(hidden_dim+16, hidden_dim)
+            self.linear2 = nn.Linear(hidden_dim+32, hidden_dim)
             self.linear3 = nn.Linear(hidden_dim, hidden_dim)
         else:
             self.linear2 = nn.Linear(hidden_dim, hidden_dim)
@@ -159,9 +159,9 @@ class Q(nn.Module):
         self.is_ref = is_ref
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         if self.is_ref:
-            self.fc2 = nn.Linear(hidden_dim+16, hidden_dim)
+            self.fc2 = nn.Linear(hidden_dim+32, hidden_dim)
             self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=16, num_layers=1)  
+            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1)  
         else:
             self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, 1)

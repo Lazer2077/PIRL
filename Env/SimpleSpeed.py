@@ -570,8 +570,8 @@ class SimpleSpeed():
         pow=(p1*v+p2*(v**3)+p3*(v*a))
         reward = self.w1*(pow) +self.w2*(a**2) 
         reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)  
-        # reward = reward + self.getTerminalReward(xVar, action)
-        reward = -reward
+        reward = reward + self.getTerminalReward(xVar, action)
+        reward = -reward*0.01
         # print("Final rewards",reward)
         
         return torch.tensor([reward]) 
