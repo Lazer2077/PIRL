@@ -56,6 +56,7 @@ class SimpleSpeed():
         self.w3 = 1e-1
         self.w4 = 1e-1
         self.w5 = 1
+        self.w6 = 1
         # constraints
         self.dmax = 80
         self.dmin = 1
@@ -438,7 +439,7 @@ class SimpleSpeed():
 
     
     def replayEpisode(self, batch, PrecInfo=None):
-        # PrecInfo: t, dp, vp
+        # PrecInfo: t, dp, vp  wq ewq e qw eqw eqw ewq
 
         observationBatch = torch.FloatTensor(batch[0])
         actionBatch = torch.FloatTensor(batch[2]).reshape(-1,self.action_dim)
@@ -568,12 +569,12 @@ class SimpleSpeed():
 
         pow=(p1*v+p2*(v**3)+p3*(v*a))
         reward = self.w1*(pow) +self.w2*(a**2) 
-        reward = self.w3*df_upper_penalty**2 + self.w4*df_lower_penalty**2
+        reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)  
         # reward = reward + self.getTerminalReward(xVar, action)
         reward = -reward
         # print("Final rewards",reward)
         
-        return reward
+        return torch.tensor([reward]) 
 
     def calcDyn(self, xVar, action, IS_OBS=True):
         action = action.reshape((-1,self.action_dim))

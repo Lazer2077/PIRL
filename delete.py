@@ -19,6 +19,11 @@ def remove_small_dirs(parent_dir, threshold_bytes=400):
                 print(f"Deleting folder: {entry_path} (size: {size} bytes)")
                 shutil.rmtree(entry_path)
 
-# 使用示例
-target_path = "/mnt/d/RL/PIRL/LogTmp"  # ← 修改成你的目标目录
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--target_path', type=str, default='/mnt/d/RL/LogTmp')
+args = parser.parse_args()
+
+target_path = args.target_path
 remove_small_dirs(target_path)
