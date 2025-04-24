@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--tau',  default=0.005, type=float) # target smoothing coefficient
 parser.add_argument('--update_iteration', default=1, type=int)
 parser.add_argument('--mode', default='train', type=str) # test or train
-parser.add_argument('--learning_rate', default=3e-4, type=int)
+parser.add_argument('--learning_rate', default=1e-4, type=int)
 parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
 parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
 parser.add_argument('--max_episode', default=12000, type=int) #  num of  games
@@ -54,9 +54,9 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC_ref' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC2' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
-args.SELECT_OBSERVATION = 'none'
+args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
@@ -90,8 +90,8 @@ if args.ENV_NAME == 'SimpleSpeed':
     ScalingDict = {
             'actionMax': Env.umax,
             'actionMin': Env.umin,
-            'xMean': torch.zeros(state_dim), 
-            'xStd': torch.ones(state_dim),
+            'xMean': Env.xmean, 
+            'xStd': Env.xstd,
                }
     # construct continuous action space on gym 
     action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))

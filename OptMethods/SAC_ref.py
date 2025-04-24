@@ -227,8 +227,6 @@ class SAC:
         self.replay_buffer = Replay_buffer()
         self.is_ref = True
         
-        
-
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
                             ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
         xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),

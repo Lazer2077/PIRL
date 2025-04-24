@@ -337,8 +337,6 @@ class SimpleSpeed():
             # df, v, k
             self.xmean = torch.FloatTensor([50., 5., 50.])
             self.xstd = torch.FloatTensor([10., 5., 30])   
-            self.obsmin = torch.FloatTensor([0., 0., 0.])
-            self.obsmax = torch.FloatTensor([self.dmax+5, self.vmax+1., self.N+2])
             
         elif self.SELECT_OBSERVATION == 'poly':
             self.xmean = torch.FloatTensor([50., 5., 50., -1, 1, 40, 40, 4, -14, 122, 122, -9, 17, 171, 176])
