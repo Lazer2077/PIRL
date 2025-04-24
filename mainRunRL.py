@@ -56,6 +56,7 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 args.OPT_METHODS = 'SAC_ref' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.SELECT_OBSERVATION = 'none'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 
@@ -73,8 +74,6 @@ if 'sac' in args.OPT_METHODS.lower():
     
 if 'ref' in args.OPT_METHODS.lower():
     obs_type = 'none'
-else:
-    obs_type = 'poly'
 
 if args.ENV_NAME == 'SimpleSpeed':
     from Env import SimpleSpeed
@@ -83,7 +82,7 @@ if args.ENV_NAME == 'SimpleSpeed':
         dataPath = r'D:/RL/trainData.mat'
     else:
         dataPath = r'/mnt/d/RL/traindata.mat'
-    Env = SimpleSpeed(dataPath, SELECT_OBSERVATION=obs_type, options=args.EnvOptions)
+    Env = SimpleSpeed(dataPath, SELECT_OBSERVATION=args.SELECT_OBSERVATION, options=args.EnvOptions)
     args.is_discrete = False
     action_dim = Env.action_dim
     state_dim = Env.obs_dim  
@@ -110,7 +109,10 @@ else:
         ScalingDict = {}
 
 
-MODEL_NAME = f'{args.OPT_METHODS}_{args.ENV_NAME}'
+MODEL_NAME = f'{args.OPT_METHODS}_{args.SELECT_OBSERVATION}_{args.ENV_NAME}'
+
+delete_command = 'python delete.py'
+os.system(delete_command)
 
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
@@ -170,6 +172,8 @@ else:
         savePath, port, 10
     )
 os.system(cmd_line)
+
+
 import OptMethods
 def main():
 
@@ -203,6 +207,8 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
+                    dfk = dp[int(dp[-1])] -state[j]
+                    writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
                 
 
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:

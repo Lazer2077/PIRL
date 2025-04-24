@@ -51,12 +51,20 @@ class SimpleSpeed():
         self.dt = 0.1
             
         # objective function weights
-        self.w1 = 1e-4
-        self.w2 = 1
-        self.w3 = 1e-1
-        self.w4 = 1e-1
-        self.w5 = 1
-        self.w6 = 1
+        # self.w1 = 1e-4
+        # self.w2 = 1
+        # self.w3 = 1e-1
+        # self.w4 = 1e-1
+        # self.w5 = 1
+        # self.w6 = 1
+        
+        self.w1 = 10**1 # acc  weight  
+        self.w2 = 10**-3; # power weight 
+        self.w3 = 10**0; # soft car following s1 df_max
+        self.w4 = 10**0; # soft car following s2 df_min 
+        self.w5 = 10**0; # terminal d
+        self.w6 = 10**1; # terminal v
+             
         # constraints
         self.dmax = 80
         self.dmin = 1
@@ -320,7 +328,6 @@ class SimpleSpeed():
 
         self.state_dim = len(self.state)
 
-        #self.observation, self.nObservation = self.resetObservation()
         self.observation = self.state2Observation(self.state)[0,:]
         self.obs_dim = len(self.observation)
 
@@ -338,6 +345,7 @@ class SimpleSpeed():
             self.xstd = torch.FloatTensor([10., 5., 30., 25, 32, 25, 25, 30, 75, 65, 52, 148, 434, 421, 297])
             self.obsmin = torch.FloatTensor([0., 0., 0., -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5])
             self.obsmax = torch.FloatTensor([self.dmax+5, self.vmax+1., self.N+2, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5])
+            
         
         self.umean = torch.FloatTensor([0])
         self.ustd = torch.FloatTensor([1])
@@ -399,10 +407,10 @@ class SimpleSpeed():
             
             # dpNext = torch.matmul(torch.FloatTensor([[np.power(self.dt,3), np.power(self.dt,2), np.power(self.dt,1), 1]]), \
                                         # torch.transpose(torch.FloatTensor(self.fArr)[idx],0,-1)*torch.row_stack([(k+1)**3, (k+1)**2, k+1, torch.ones(k.shape)]))
-            observation = torch.empty(state.shape[0],2+self.nIntvl*(self.nPoly+1))
+            observation = torch.empty(state.shape[0],self.state_dim+1+self.nIntvl*(self.nPoly+1))
             observation[:,0] = state[:,0]
             observation[:,1] = state[:,1]
-            # observation[:,2] = k
+            observation[:,2] = k
             
             # observation poly, from highest order to zero order
             # fArr [p0,p1,p2,p3] -> p3*t^3+p2*t^2+p1*t+p0
@@ -412,6 +420,11 @@ class SimpleSpeed():
                 observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly] = observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly-1] + self.fArr[i][0]
                 pass
             pass
+        elif self.SELECT_OBSERVATION == 'all':
+            observation = torch.empty(state.shape[0],self.state_dim+1+self.N)
+            observation[:,0:self.state_dim] = state
+            observation[:,self.state_dim] = k
+            observation[:,self.state_dim+1:self.state_dim+1+self.N] = torch.tensor(self.dp[:self.N])
         return observation
 
     def step(self, action):
@@ -432,6 +445,7 @@ class SimpleSpeed():
         truncated = (self.k == self.N)
         terminated = truncated
         observationNext = self.calcDyn(self.observation, action, IS_OBS=True)
+        
         self.k = self.k + 1
         #observationNext = self.state2Observation(self.state)
         self.observation = observationNext[0,:]
@@ -474,12 +488,6 @@ class SimpleSpeed():
  
         return Tdict['func']['interp1'](np.arange(self.N+1), self.dp.flatten(), k.flatten())
     
-    def calcDiffOld(self, obs, act, obsnext, valueFunc, actorFunc):
-        dynFunc = lambda observation, action: self.calcDyn(observation, action, IS_OBS=True)
-        rFunc = lambda observation, action: self.getReward(observation, action, IS_OBS=True)
-        pErr,uLoss,Info = self.Utils_c.calcDiffOld(obs, act, obsnext, valueFunc, actorFunc, dynFunc, rFunc, USE_CUDA=USE_CUDA)
-
-        return pErr, uLoss, Info
 
     def calcDiff(self,  obs, act, obsnext, dAgent_dict, USE_CUDA=True):
         # used to do auto-differentiation
@@ -562,13 +570,12 @@ class SimpleSpeed():
         vp = self.vp[self.k]
 
         df = dp-d 
-        vf = vp-v
         
         df_upper_penalty = max(df-self.dmax,0)
         df_lower_penalty = max(self.dmin-df,0)
 
         pow=(p1*v+p2*(v**3)+p3*(v*a))
-        reward = self.w1*(pow) +self.w2*(a**2) 
+        reward =  self.w1*(a**2) + self.w2*(pow)
         reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)  
         reward = reward + self.getTerminalReward(xVar, action)
         reward = -reward*0.01
@@ -579,6 +586,8 @@ class SimpleSpeed():
     def calcDyn(self, xVar, action, IS_OBS=True):
         action = action.reshape((-1,self.action_dim))
         a = action[:,0].reshape((-1,1))
+        k = torch.tensor(self.k).reshape((-1,1))
+        
         if not IS_OBS:
             xVar = xVar.reshape((-1,self.state_dim))
             d = xVar[:,0].reshape((-1,1))
@@ -611,9 +620,9 @@ class SimpleSpeed():
                 #     return dpCalc
                 
                 # dpDelta = -__dpFunc(obs,k)
-                k = self.k
                 dyn = torch.hstack([(d + self.dt*v),
-                                    torch.clip(v+self.dt*a, self.vmin, self.vmax)])
+                                    torch.clip(v+self.dt*a, self.vmin, self.vmax),
+                                    k])
                 for i in range(self.nIntvl):
                     for j in range(self.nPoly+1):
                         # if not last
@@ -623,7 +632,11 @@ class SimpleSpeed():
                         else:
                             dyn = torch.hstack([dyn,
                                         obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1)) + obs[:,self.state_dim+i*(self.nPoly+1)+j-1].reshape((-1,1))*((k+2)/(k+1)-1)])
-                # dpDelta = dpDelta + __dpFunc(dyn, k+1)
-                # dyn[:,0:1] = (dpDelta+df-self.dt*v)
-        
+
+            elif self.SELECT_OBSERVATION == 'all':
+                dyn = xVar
+                dyn[0] = d + self.dt*v
+                dyn[1] = torch.clip(v+self.dt*a, self.vmin, self.vmax)
+                dyn[2] = k + 1 
+                dyn= dyn.reshape((-1,self.obs_dim))
         return dyn

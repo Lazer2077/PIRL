@@ -17,34 +17,56 @@ def weights_init_(m):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
-class LSTMWithTimeIndex(nn.Module):
-    def __init__(self, input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1):
+# class LSTMWithTimeIndex(nn.Module):
+#     def __init__(self, input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1):
+#         super().__init__()
+#         self.input_dim = input_dim
+#         self.time_index_dim = time_index_dim
+#         self.lstm_input_dim = input_dim + time_index_dim
+        
+#         self.lstm = nn.LSTM(
+#             input_size=self.lstm_input_dim,
+#             hidden_size=hidden_dim,
+#             num_layers=num_layers,
+#             batch_first=True
+#         )
+#         self.fc = nn.Linear(hidden_dim, output_dim)
+        
+#     def forward(self,xt):
+#         """
+#         x:        [B, T, 150]        -- batch of 150-dim sequence
+#         t_index:  [B, T, 1]          -- corresponding time indices
+#         return:   [B, 64]            -- 64-dimensional output per sequence
+#         """
+#         # convert xt to tensor 
+#         if xt.ndim == 2:
+#             xt = xt.unsqueeze(1)
+#         out, _ = self.lstm(xt)                # out: [B, T, hidden_dim]
+#         last_out = out[:, -1, :]              # 取最后一个时间步输出 [B, hidden_dim]
+#         return self.fc(last_out)              # 映射到16维
+class RefProcesser(nn.Module):
+    def __init__(self, input_dim=150, time_index_dim=1, hidden_dim1=64, hidden_dim2=32, output_dim=32):
         super().__init__()
         self.input_dim = input_dim
         self.time_index_dim = time_index_dim
-        self.lstm_input_dim = input_dim + time_index_dim
-        
-        self.lstm = nn.LSTM(
-            input_size=self.lstm_input_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True
-        )
-        self.fc = nn.Linear(hidden_dim, output_dim)
-        
-    def forward(self,xt):
-        """
-        x:        [B, T, 150]        -- batch of 150-dim sequence
-        t_index:  [B, T, 1]          -- corresponding time indices
-        return:   [B, 64]            -- 64-dimensional output per sequence
-        """
-        # convert xt to tensor 
-        if xt.ndim == 2:
-            xt = xt.unsqueeze(1)
-        out, _ = self.lstm(xt)                # out: [B, T, hidden_dim]
-        last_out = out[:, -1, :]              # 取最后一个时间步输出 [B, hidden_dim]
-        return self.fc(last_out)              # 映射到16维
+        self.total_input_dim = input_dim + time_index_dim
 
+        self.fc1 = nn.Linear(self.total_input_dim, hidden_dim1)
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)
+        self.fc3 = nn.Linear(hidden_dim2, output_dim)
+
+    def forward(self, xt):
+        """
+        xt: [B, T, input_dim + time_index_dim] or [B, input_dim + time_index_dim]
+        Output: [B, output_dim]
+        """
+        # 如果是序列，则取最后一个时间步
+        if xt.ndim == 3:
+            xt = xt[:, -1, :]  # shape: [B, input_dim + time_index_dim]
+
+        x = F.relu(self.fc1(xt))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
 
 class GaussianPolicy(nn.Module):
     def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None, is_ref=False):
@@ -52,7 +74,7 @@ class GaussianPolicy(nn.Module):
         self.is_ref = is_ref
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         if self.is_ref:
-            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1)
+            self.ref_processer = RefProcesser(input_dim=150, output_dim=32)
             self.linear2 = nn.Linear(hidden_dim+32, hidden_dim)
             self.linear3 = nn.Linear(hidden_dim, hidden_dim)
         else:
@@ -75,7 +97,7 @@ class GaussianPolicy(nn.Module):
     def forward(self, state, ref=None):
         x = F.relu(self.linear1(state))
         if ref is not None:
-            ref_feature = self.lstm(ref)
+            ref_feature = self.ref_processer(ref)
             x = torch.cat([x, ref_feature], dim=-1)
             x = F.relu(self.linear2(x))
             x = F.relu(self.linear3(x))
@@ -159,9 +181,9 @@ class Q(nn.Module):
         self.is_ref = is_ref
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         if self.is_ref:
+            self.ref_processer = RefProcesser(input_dim=150, output_dim=32)  
             self.fc2 = nn.Linear(hidden_dim+32, hidden_dim)
             self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-            self.lstm = LSTMWithTimeIndex(input_dim=150, time_index_dim=1, hidden_dim=64, output_dim=32, num_layers=1)  
         else:
             self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, 1)
@@ -183,7 +205,7 @@ class Q(nn.Module):
         x = (x - self.xmean) / self.xstd
         x = F.relu(self.fc1(x))
         if self.is_ref:
-            ref_feature = self.lstm(ref)
+            ref_feature = self.ref_processer(ref)
             x = torch.cat([x, ref_feature], dim=-1)
             x = F.relu(self.fc2(x))
         else:
@@ -244,7 +266,7 @@ class SAC:
             action, _, _ = self.policy_net.sample(state, ref)
         else:
             _, _, action = self.policy_net.sample(state, ref)
-        return action.detach().cpu().numpy()[0]
+        return action.detach().cpu()[0]
 
     def evaluate(self, state):
         if self.is_discrete:

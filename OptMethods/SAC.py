@@ -208,7 +208,7 @@ class SAC:
             action, _, _ = self.policy_net.sample(state)
         else:
             _, _, action = self.policy_net.sample(state)
-        return action.detach().cpu().numpy()[0]
+        return action.detach().cpu()[0]
 
     def evaluate(self, state):
         if self.is_discrete:

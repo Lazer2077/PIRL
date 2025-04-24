@@ -95,7 +95,7 @@ class DeterministicPolicy(nn.Module):
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
         return mean
 
-    def sample(self, state):
+    def sample(self, state,ref=None):
         mean = self.forward(state)
         noise = self.noise.normal_(0., std=0.1)
         noise = noise.clamp(-0.25, 0.25)
@@ -169,18 +169,18 @@ class SAC:
         self.device = device
         self.alpha = torch.FloatTensor([args.alpha]).to(device)
         self.state_dim = state_dim
-        if isinstance(action_space, gym.spaces.Discrete):   
-            self.action_dim = action_space.n
-            self.is_discrete = True
-        else:
-            self.action_dim = action_space
-            self.is_discrete = False
+        self.action_dim = action_space.shape[0]
+        self.is_discrete = args.is_discrete
+        
             
         self.automatic_entropy_tuning = args.automatic_entropy_tuning   
         self.replay_buffer = Replay_buffer()
 
-        xumean = torch.cat([ScalingDict['xMean'].to(device), ScalingDict['uMean'].to(device)])
-        xustd = torch.cat([ScalingDict['xStd'].to(device), ScalingDict['uStd'].to(device)])
+
+        xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
+                            ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
+        xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),
+                           ScalingDict.get('uStd', torch.ones(self.action_dim)).to(device)])
 
         self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
@@ -207,13 +207,13 @@ class SAC:
             self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
         self.policy_optimizer = Adam(self.policy_net.parameters(), lr=args.learning_rate)
 
-    def select_action(self, state, evaluate=False):
+    def select_action(self, state, evaluate=False,ref=None):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
         if evaluate is False:
             action, _, _ = self.policy_net.sample(state)
         else:
             _, _, action = self.policy_net.sample(state)
-        return action.detach().cpu().numpy()[0]
+        return action.detach().cpu()[0]
 
     def evaluate(self, state):
         if self.is_discrete:
@@ -297,7 +297,7 @@ class SAC:
             for i in range(horizon):
                 reward = min_Q - soft_value_next
                 done = False
-                self.replay_buffer.push((state, next_state, action, reward, done))
+                self.replay_buffer.push((state, next_state, action, reward, done,ref))
                 # next iter 
                 state = next_state
                 next_state = next_state_next
@@ -319,7 +319,7 @@ class SAC:
         
         
     def update(self, batch_size, Info=None):
-        x, y, u, r, d = self.replay_buffer.sample(batch_size)
+        x, y, u, r, d, ref = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
@@ -378,8 +378,8 @@ class SAC:
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
         for target_param, param in zip(self.Q_target_net2.parameters(), self.Q_net2.parameters()):
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
-        if self.alpha.item()<0.3:
-            self.MPC_rollout(state_batch[25])
+        # if self.alpha.item()<0.3:
+        #     self.MPC_rollout(state_batch[25])
         return q1_loss.item(), q2_loss.item(), policy_loss.item(), alpha_loss.item(), self.alpha.item()
     
     
