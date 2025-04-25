@@ -414,8 +414,8 @@ class SimpleSpeed():
             # fArr [p0,p1,p2,p3] -> p3*t^3+p2*t^2+p1*t+p0
             for i in range(self.nIntvl):
                 for j in range(self.nPoly):
-                    observation[:,self.state_dim+i*(self.nPoly+1)+j] = self.fArr[i][self.nPoly-j]*np.power(self.dt*(k+1), self.nPoly-j)
-                observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly] = observation[:,self.state_dim+i*(self.nPoly+1)+self.nPoly-1] + self.fArr[i][0]
+                    observation[:,self.state_dim+1+i*(self.nPoly+1)+j] = self.fArr[i][self.nPoly-j]*np.power(self.dt*(k+1), self.nPoly-j)
+                observation[:,self.state_dim+1+i*(self.nPoly+1)+self.nPoly] = observation[:,self.state_dim+1+i*(self.nPoly+1)+self.nPoly-1] + self.fArr[i][0]
                 pass
             pass
         elif self.SELECT_OBSERVATION == 'all':
