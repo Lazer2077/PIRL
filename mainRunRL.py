@@ -176,12 +176,7 @@ os.system(cmd_line)
 
 import OptMethods
 def main():
-
-    # if 'ref' in args.OPT_METHODS.lower():
-        
-
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
-    
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
