@@ -51,14 +51,9 @@ class SimpleSpeed():
         self.dt = 0.1
             
         # objective function weights
-        # self.w1 = 1e-4
-        # self.w2 = 1
-        # self.w3 = 1e-1
-        # self.w4 = 1e-1
-        # self.w5 = 1
-        # self.w6 = 1
+
         
-        self.w1 = 10**1 # acc  weight  
+        self.w1 = 10**1.4 # acc  weight  
         self.w2 = 10**-3; # power weight 
         self.w3 = 10**0; # soft car following s1 df_max
         self.w4 = 10**0; # soft car following s2 df_min 
@@ -602,22 +597,22 @@ class SimpleSpeed():
                 dyn = torch.hstack([(d+self.dt*v),
                                     torch.clip(v+self.dt*a, self.vmin, self.vmax)])
             elif self.SELECT_OBSERVATION == 'poly':                
-                # def __dpFunc(obs, k):      
-                #     # use sigmoid to create lookup table based on k
-                #     dpCalc = 0
-                #     for i in range(self.nIntvl):
-                #         for j in range(self.nPoly+1):
-                #             # skip linear term
-                #             if j == self.nPoly-1:
-                #                 continue
-                #             # if last interval
-                #             if i == self.nIntvl-1:
-                #                 dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx)))
-                #             else:
-                #                 dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx))-torch.sigmoid((k+0.5-(i+1)*self.nIntvlIdx)))
-                #     return dpCalc
+                def __dpFunc(obs, k):      
+                    # use sigmoid to create lookup table based on k
+                    dpCalc = 0
+                    for i in range(self.nIntvl):
+                        for j in range(self.nPoly+1):
+                            # skip linear term
+                            if j == self.nPoly-1:
+                                continue
+                            # if last interval
+                            if i == self.nIntvl-1:
+                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx)))
+                            else:
+                                dpCalc = dpCalc + obs[:,3+i*(self.nPoly+1)+j].reshape((-1,1))*(torch.sigmoid((k+0.5-i*self.nIntvlIdx))-torch.sigmoid((k+0.5-(i+1)*self.nIntvlIdx)))
+                    return dpCalc
                 
-                # dpDelta = -__dpFunc(obs,k)
+                dpDelta = -__dpFunc(obs,k)
                 dyn = torch.hstack([(d + self.dt*v),
                                     torch.clip(v+self.dt*a, self.vmin, self.vmax),
                                     k])

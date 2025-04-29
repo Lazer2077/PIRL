@@ -54,10 +54,10 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
-args.ENABLE_VALIDATION = True
+args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
 
 if 'ddpg' in args.OPT_METHODS.lower():
@@ -180,7 +180,7 @@ def main():
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
-    EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
+    
     total_numsteps = 0
     for i in range(1, args.max_episode):
             episode_steps = 0
@@ -225,6 +225,7 @@ def main():
             writer.add_scalar('Episode/Reward', episode_reward, i)
            
             if (args.ENABLE_VALIDATION) & (i % args.eval_interval == 0):
+                EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
                 avg_reward = 0.
                 episodes = 10
                 for _  in range(episodes):
