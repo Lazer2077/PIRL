@@ -27,9 +27,9 @@ class Replay_buffer():
         # batch = random.sample(self.storage, batch_size)
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
-        x, y, u, r, d, ref = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+        x, y, u, r1,r2,r3, d = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
 
-        return x,y,u,r,d,ref
+        return x,y,u,r1,r2,r3,d
     
     def getEpisodeBatch(self, steps):
 
@@ -50,16 +50,19 @@ class Replay_buffer():
             observationBatch = np.array(batch[0])
             observationNextBatch = np.array(batch[1])
             actionBatch = np.array(batch[2])
-            rewardBatch = np.array(batch[3])
+            reward1Batch = np.array(batch[3])
+            reward2Batch = np.array(batch[4])
+            reward3Batch = np.array(batch[5])
         else:
             observationBatch = torch.stack(batch[0]).cpu().data.numpy()
             observationNextBatch = torch.stack(batch[1]).cpu().data.numpy()
             actionBatch = torch.stack(batch[2]).cpu().data.numpy().flatten()
-            rewardBatch = torch.stack(batch[3]).cpu().data.numpy().flatten()
-        doneBatch = np.array(batch[4])
-        refBatch = np.array(batch[5])
+            reward1Batch = torch.stack(batch[3]).cpu().data.numpy().flatten()
+            reward2Batch = torch.stack(batch[4]).cpu().data.numpy().flatten()
+            reward3Batch = torch.stack(batch[5]).cpu().data.numpy().flatten()
+        doneBatch = np.array(batch[6])
 
-        return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, refBatch)
+        return (observationBatch, observationNextBatch, actionBatch, reward1Batch, reward2Batch, reward3Batch, doneBatch)
 
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20

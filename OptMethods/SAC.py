@@ -235,6 +235,7 @@ class SAC:
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
         reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
+        undone_batch = torch.FloatTensor(d).reshape(-1, 1).to(self.device)
         done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
 
         with torch.no_grad():
@@ -243,7 +244,8 @@ class SAC:
             q2_next = self.Q_target_net2(next_state_batch, next_action)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            next_q_value = reward_batch + done_batch * self.gamma * min_q_next
+            next_q_value  = reward_batch + done_batch * self.gamma * min_q_next
+            
 
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
@@ -251,7 +253,31 @@ class SAC:
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
         
+        import matplotlib.pyplot as plt
+        from Env.SimpleSpeed import SimpleSpeed
+        aa = next_state_batch[0]
+        bb = next_action[0]
+        V1= []
+        V2= []
+        for i in range(150):
+            aa[2] = i 
+            vv1 = self.Q_target_net1(aa,bb)
+            vv2 = self.Q_target_net2(aa,bb)
+            V1.append(vv1.item())
+            V2.append(vv2.item())
+        # plot V
+        tt = SimpleSpeed.getTerminalReward(aa, bb)
+        plt.plot(V1,label='Q1')
+        plt.plot(V2,label='Q2')
+        # scatter at the end 
+        plt.scatter(150,tt,label='terminal')
+        plt.legend()
+        plt.title('Q vs k increase')
+        plt.xlabel('k')
+        plt.ylabel('Q value')
+        plt.savefig('V.png')
         
+
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         (q1_loss+q2_loss).backward()   
