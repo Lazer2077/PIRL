@@ -8,6 +8,10 @@ import h5py
 
 ENABLE_DEBUG = True
 
+def TerminalReward(state, action):
+    
+    pass
+
 class SimpleSpeed():
     def __init__(self, dataPath, SELECT_PREC_ID=None, SELECT_OBSERVATION='state', options={}):
 
