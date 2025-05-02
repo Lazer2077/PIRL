@@ -8,9 +8,24 @@ import h5py
 
 ENABLE_DEBUG = True
 
-def TerminalReward(state, action):
+def TerminalReward(state,dp,vp):
+    # get terminal reward
+    # state: [s,v,a,dp,k]
+    # action: [a]
+    # dp: [dp]
+    # vp: [vp]
+    # get terminal reward
+    w5 = 10**0
+    w6 = 10**1
+    ht = 1.5
+    dmin = 1
+    df = dp[-1]-state[0]
+    vf = vp[-1]
+    v = state[1]
+    dsafe = vf*ht + dmin 
+    reward = w5*(df-dsafe)**2 +w6*(vf-v)**2
+    return reward
     
-    pass
 
 class SimpleSpeed():
     def __init__(self, dataPath, SELECT_PREC_ID=None, SELECT_OBSERVATION='state', options={}):

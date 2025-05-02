@@ -253,29 +253,7 @@ class SAC:
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
         
-        import matplotlib.pyplot as plt
-        from Env.SimpleSpeed import SimpleSpeed
-        aa = next_state_batch[0]
-        bb = next_action[0]
-        V1= []
-        V2= []
-        for i in range(150):
-            aa[2] = i 
-            vv1 = self.Q_target_net1(aa,bb)
-            vv2 = self.Q_target_net2(aa,bb)
-            V1.append(vv1.item())
-            V2.append(vv2.item())
-        # plot V
-        tt = SimpleSpeed.getTerminalReward(aa, bb)
-        plt.plot(V1,label='Q1')
-        plt.plot(V2,label='Q2')
-        # scatter at the end 
-        plt.scatter(150,tt,label='terminal')
-        plt.legend()
-        plt.title('Q vs k increase')
-        plt.xlabel('k')
-        plt.ylabel('Q value')
-        plt.savefig('V.png')
+
         
 
         self.Q1_optimizer.zero_grad()

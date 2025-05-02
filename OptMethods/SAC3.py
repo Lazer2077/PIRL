@@ -9,7 +9,8 @@ from torch.optim import Adam
 
 from operator import itemgetter
 import torch
-
+# import replay buffer
+# from .lib import ReplayBuffer
 class Replay_buffer():
     def __init__(self, max_size=10000):
         self.storage = []
@@ -27,9 +28,9 @@ class Replay_buffer():
         # batch = random.sample(self.storage, batch_size)
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
-        x, y, u, r1,r2,r3, d = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+        x, y, u, r, d, ref = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
 
-        return x,y,u,r1,r2,r3,d
+        return x,y,u,r,d,ref
     
     def getEpisodeBatch(self, steps):
 
@@ -50,19 +51,16 @@ class Replay_buffer():
             observationBatch = np.array(batch[0])
             observationNextBatch = np.array(batch[1])
             actionBatch = np.array(batch[2])
-            reward1Batch = np.array(batch[3])
-            reward2Batch = np.array(batch[4])
-            reward3Batch = np.array(batch[5])
+            rewardBatch = np.array(batch[3])
         else:
             observationBatch = torch.stack(batch[0]).cpu().data.numpy()
             observationNextBatch = torch.stack(batch[1]).cpu().data.numpy()
             actionBatch = torch.stack(batch[2]).cpu().data.numpy().flatten()
-            reward1Batch = torch.stack(batch[3]).cpu().data.numpy().flatten()
-            reward2Batch = torch.stack(batch[4]).cpu().data.numpy().flatten()
-            reward3Batch = torch.stack(batch[5]).cpu().data.numpy().flatten()
-        doneBatch = np.array(batch[6])
+            rewardBatch = torch.stack(batch[3]).cpu().data.numpy().flatten()
+        doneBatch = np.array(batch[4])
+        refBatch = np.array(batch[5])
 
-        return (observationBatch, observationNextBatch, actionBatch, reward1Batch, reward2Batch, reward3Batch, doneBatch)
+        return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, refBatch)
 
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
@@ -290,7 +288,7 @@ class SAC3:
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
     def update(self, batch_size, Info=None):
-        x, y, u, r, d,_ = self.replay_buffer.sample(batch_size)
+        x, y, u, r, d, ref = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
@@ -304,14 +302,48 @@ class SAC3:
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
             next_q_value = reward_batch + done_batch * self.gamma * min_q_next
-
+            next_q2_value = done_batch * reward_batch
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
+        qf3 = self.Q_net3(state_batch, action_batch)
+        
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
         
         
+        # ''' test code
+        import matplotlib.pyplot as plt
+        from Env.SimpleSpeed import TerminalReward
+        aa = next_state_batch[0]
+        bb = next_action[0]
+        V1= []
+        V2= []
+        for i in range(150):
+            aa[2] = i 
+            vv1 = self.Q_target_net1(aa,bb)
+            vv2 = self.Q_target_net2(aa,bb)
+            V1.append(-vv1.item())
+            V2.append(-vv2.item())
+        # plot V
+        dp = ref[0]
+        # diff dp
+        vp = np.diff(dp)[:-1]
+        # use latex
+        plt.rcParams['text.usetex'] = True
+        tt = TerminalReward(aa,dp,vp)*0.01
+        plt.plot(V1,label='Q1')
+        plt.plot(V2,label='Q2')
+        # scatter at the end 
+        plt.scatter(150,tt.item(),label='terminal')
+        plt.legend()
+        plt.title(r'Q vs $k$ increase')
+        
+        plt.xlabel(r'$k$')
+        plt.ylabel('Q value')
+        plt.savefig('V.png')
+        plt.close()
+        # '''
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         (q1_loss+q2_loss).backward()   
