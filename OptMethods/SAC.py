@@ -253,9 +253,6 @@ class SAC:
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
         
-
-        
-
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         (q1_loss+q2_loss).backward()   

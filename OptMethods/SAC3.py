@@ -301,8 +301,9 @@ class SAC3:
             q2_next = self.Q_target_net2(next_state_batch, next_action)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            next_q_value = reward_batch + done_batch * self.gamma * min_q_next
-            next_q2_value = done_batch * reward_batch
+            next_q_value = reward_batch + done_batch * self.gamma * min_q_next 
+        
+            
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
         qf3 = self.Q_net3(state_batch, action_batch)

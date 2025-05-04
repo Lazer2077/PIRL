@@ -54,7 +54,7 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
@@ -180,7 +180,7 @@ def main():
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
-    
+    terminal_sample = 100
     total_numsteps = 0
     for i in range(1, args.max_episode):
             episode_steps = 0
@@ -194,7 +194,11 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                if done:
+                    for oo in range(terminal_sample):
+                        agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                else:   
+                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  

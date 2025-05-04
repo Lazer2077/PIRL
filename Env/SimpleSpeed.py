@@ -29,7 +29,6 @@ def TerminalReward(state,dp,vp):
 
 class SimpleSpeed():
     def __init__(self, dataPath, SELECT_PREC_ID=None, SELECT_OBSERVATION='state', options={}):
-
         self.Debug = {} # debug variable dict
         # vehicle parameters
         m = 2000
@@ -70,8 +69,6 @@ class SimpleSpeed():
         self.dt = 0.1
             
         # objective function weights
-
-        
         self.w1 = 10**1.4 # acc  weight  
         self.w2 = 10**-3; # power weight 
         self.w3 = 10**0; # soft car following s1 df_max
