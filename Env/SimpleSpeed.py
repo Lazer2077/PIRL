@@ -582,14 +582,14 @@ class SimpleSpeed():
         
         df_upper_penalty = max(df-self.dmax,0)
         df_lower_penalty = max(self.dmin-df,0)
+        if self.k == self.N:
+            reward = self.getTerminalReward(xVar, action)
+        else:
+            pow=(p1*v+p2*(v**3)+p3*(v*a))
+            reward =  self.w1*(a**2) + self.w2*(pow)
+            reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)
 
-        pow=(p1*v+p2*(v**3)+p3*(v*a))
-        reward =  self.w1*(a**2) + self.w2*(pow)
-        reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)  
-        reward = reward + self.getTerminalReward(xVar, action)
         reward = -reward*0.01
-        # print("Final rewards",reward)
-        
         return torch.tensor([reward]) 
 
     def calcDyn(self, xVar, action, IS_OBS=True):

@@ -54,7 +54,7 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 
 # add system path
 
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
@@ -173,7 +173,6 @@ else:
     )
 os.system(cmd_line)
 
-
 import OptMethods
 def main():
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
@@ -194,11 +193,14 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                if done:
-                    for oo in range(terminal_sample):
-                        agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
-                else:   
-                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                # if done:
+                #     for oo in range(terminal_sample):
+                #         agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))
+                #     Info = {'done': done}
+                #     agent.update(args.batch_size, Info)
+                #     # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                # else:   
+                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  

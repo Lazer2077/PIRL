@@ -22,7 +22,6 @@ class Replay_buffer():
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
         x, y, u, r, d, ref = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
-
         return x,y,u,r,d,ref
     
     def getEpisodeBatch(self, steps):

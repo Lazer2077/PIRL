@@ -291,7 +291,6 @@ class SAC:
         torch.save(self.Q_target_net1.state_dict(), os.path.join(modelPath, 'Q_target_net1.pth'))
         torch.save(self.Q_target_net2.state_dict(), os.path.join(modelPath, 'Q_target_net2.pth'))
         #torch.save(self.critic_target.state_dict(), os.path.join(savePath, 'critic_target.pth'))
-
         print("====================================")
         print("Model has been saved...")
         print("====================================")

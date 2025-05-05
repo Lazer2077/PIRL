@@ -306,21 +306,21 @@ class SAC3:
             
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
-        qf3 = self.Q_net3(state_batch, action_batch)
+        # qf3 = self.Q_net3(state_batch, action_batch)
         
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
         
         
-        # ''' test code
+        ''' test code
         import matplotlib.pyplot as plt
         from Env.SimpleSpeed import TerminalReward
         aa = next_state_batch[0]
         bb = next_action[0]
         V1= []
         V2= []
-        for i in range(150):
+        for i in range(151):
             aa[2] = i 
             vv1 = self.Q_target_net1(aa,bb)
             vv2 = self.Q_target_net2(aa,bb)
@@ -331,20 +331,28 @@ class SAC3:
         # diff dp
         vp = np.diff(dp)[:-1]
         # use latex
-        plt.rcParams['text.usetex'] = True
+        import matplotlib as mpl
+        mpl.rcParams['text.usetex'] = False
         tt = TerminalReward(aa,dp,vp)*0.01
-        plt.plot(V1,label='Q1')
-        plt.plot(V2,label='Q2')
+        fig, ax = plt.subplots()
+        ax.plot(V1,label='Q1')
+        ax.plot(V2,label='Q2')
         # scatter at the end 
-        plt.scatter(150,tt.item(),label='terminal')
-        plt.legend()
-        plt.title(r'Q vs $k$ increase')
+        ax.scatter(151,tt.item(),label='terminal')
+        ax.legend()
+        ax.set_title(r'Q vs $k$ increase')
         
-        plt.xlabel(r'$k$')
-        plt.ylabel('Q value')
-        plt.savefig('V.png')
+        ax.set_xlabel(r'k')
+        ax.set_ylabel('Q value')
+        # use PIL to save 
+        from PIL import Image
+        fig.canvas.draw()
+        img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        Image.fromarray(img).save('V.png')
         plt.close()
-        # '''
+        print(tt.item() )
+        # '''   
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         (q1_loss+q2_loss).backward()   
