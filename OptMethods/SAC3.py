@@ -211,6 +211,27 @@ class Q(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
+class TerminalQ(nn.Module):
+    def __init__(self,  xMean, xStd, state_dim=4, hidden_dim=256):
+        super(TerminalQ, self).__init__()
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+        self.xmean = torch.tensor(xMean, dtype=torch.float32).to('cuda')
+        self.xstd = torch.tensor(xStd, dtype=torch.float32).to('cuda')
+    def forward(self, s):
+        s = (s - self.xmean) / self.xstd
+        x = F.gelu(self.fc1(s))
+        x = F.gelu(self.fc2(x))
+        return self.fc3(x)
+    
+    
+def load_Q3(path = 'terminal.pth'):
+    X_mean = torch.load(path)['X_mean']
+    X_std = torch.load(path)['X_std']
+    model = TerminalQ(X_mean, X_std).to('cuda')
+    model.load_state_dict(torch.load(path)['model'])
+    return model    
 
 class SAC3:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
@@ -222,8 +243,12 @@ class SAC3:
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning   
+        '''separate the done and undone buffer'''        
+        # self.done_buffer = Replay_buffer()
+        # self.undone_buffer = Replay_buffer()
+        ''''''
+        
         self.replay_buffer = Replay_buffer()
-
 
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
                             ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
@@ -232,12 +257,12 @@ class SAC3:
 
         self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_net3 = load_Q3().to(device)
+        
         
         self.Q_target_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_target_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_target_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        
+   
         self.Q1_optimizer = Adam(self.Q_net1.parameters(), lr=args.learning_rate)
         self.Q2_optimizer = Adam(self.Q_net2.parameters(), lr=args.learning_rate)
         self.Q3_optimizer = Adam(self.Q_net3.parameters(), lr=args.learning_rate)
@@ -287,72 +312,49 @@ class SAC3:
             log_prob = dist.log_prob(x_t) - log_det
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
-    def update(self, batch_size, Info=None):
+
+    def update_done(self, batch_size, Info=None):
+        x, y, u, r, d, ref = self.done_buffer.sample(batch_size)
+        state_batch = torch.FloatTensor(x).to(self.device)
+        action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
+        reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
+        from Env.SimpleSpeed import TerminalReward
+        # tt = TerminalReward(state_batch.cpu().data.numpy(), ref[:,-2], np.diff(ref)[:,-2]) * 0.01
+        with torch.no_grad():
+            next_q_value = reward_batch 
+        qf3 = self.Q_net3(state_batch)
+        q3_loss = F.mse_loss(qf3, next_q_value)
+        self.Q3_optimizer.zero_grad()
+        q3_loss.backward()
+        self.Q3_optimizer.step()
+        return q3_loss.item()
+
+    def update_undone(self, batch_size, Info=None):
+        # x, y, u, r, d, ref = self.undone_buffer.sample(batch_size)
         x, y, u, r, d, ref = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
+        done_batch = torch.FloatTensor(d).reshape(-1, 1).to(self.device)    
+        undone_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
         reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
-        done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
-
         with torch.no_grad():
             next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
             q1_next = self.Q_target_net1(next_state_batch, next_action)
             q2_next = self.Q_target_net2(next_state_batch, next_action)
-            # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            next_q_value = reward_batch + done_batch * self.gamma * min_q_next 
-        
-            
+            # vf  =torch.tensor(np.diff(ref)[:,-2]/0.1).to(self.device).reshape(-1,1).to(torch.float32)
+            # df = torch.tensor(ref[:,-2]).to(self.device).reshape(-1,1).to(torch.float32)
+            # simple_state_batch = torch.cat((state_batch[:, :2],df , vf), dim=-1)
+            # next_q_value = undone_batch* (reward_batch + self.gamma * min_q_next) + (done_batch * self.Q_net3(simple_state_batch)*0.01)
+            next_q_value =reward_batch + self.gamma* min_q_next
+
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
-        # qf3 = self.Q_net3(state_batch, action_batch)
-        
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
-        
-        
-        ''' test code
-        import matplotlib.pyplot as plt
-        from Env.SimpleSpeed import TerminalReward
-        aa = next_state_batch[0]
-        bb = next_action[0]
-        V1= []
-        V2= []
-        for i in range(151):
-            aa[2] = i 
-            vv1 = self.Q_target_net1(aa,bb)
-            vv2 = self.Q_target_net2(aa,bb)
-            V1.append(-vv1.item())
-            V2.append(-vv2.item())
-        # plot V
-        dp = ref[0]
-        # diff dp
-        vp = np.diff(dp)[:-1]
-        # use latex
-        import matplotlib as mpl
-        mpl.rcParams['text.usetex'] = False
-        tt = TerminalReward(aa,dp,vp)*0.01
-        fig, ax = plt.subplots()
-        ax.plot(V1,label='Q1')
-        ax.plot(V2,label='Q2')
-        # scatter at the end 
-        ax.scatter(151,tt.item(),label='terminal')
-        ax.legend()
-        ax.set_title(r'Q vs $k$ increase')
-        
-        ax.set_xlabel(r'k')
-        ax.set_ylabel('Q value')
-        # use PIL to save 
-        from PIL import Image
-        fig.canvas.draw()
-        img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        Image.fromarray(img).save('V.png')
-        plt.close()
-        print(tt.item() )
-        # '''   
+
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
         (q1_loss+q2_loss).backward()   
@@ -362,7 +364,8 @@ class SAC3:
         pi, log_prob, _ = self.policy_net.sample(state_batch)
         q1_pi   = self.Q_net1(state_batch, pi)
         q2_pi   = self.Q_net2(state_batch, pi)
-
+        # q3_pi = self.Q_net3(state_batch, torch.tensor(0).to(self.device))    
+        
         min_q_pi = torch.min(q1_pi, q2_pi)
         policy_loss = (self.alpha * log_prob - min_q_pi).mean()
         self.policy_optimizer.zero_grad()
@@ -380,7 +383,63 @@ class SAC3:
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
         for target_param, param in zip(self.Q_target_net2.parameters(), self.Q_net2.parameters()):
             target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
-        return q1_loss.item(), q2_loss.item(), policy_loss.item(), alpha_loss.item(), self.alpha.item()
+        
+        ''' test code
+        import plotly.graph_objects as go
+        from Env.SimpleSpeed import TerminalReward
+        import numpy as np
+
+        aa = next_state_batch[0].detach().clone()
+        bb = next_action[0]
+        V1, V2, V3 = [], [], []
+
+        # 计算 Q 值曲线
+        for i in range(151):
+            aa[2] = i
+            vv1 = self.Q_target_net1(aa, bb)
+            vv2 = self.Q_target_net2(aa, bb)
+            vv3 = self.Q_target_net3(aa, bb)
+            V1.append(-vv1.item())
+            V2.append(-vv2.item())
+            V3.append(-vv3.item())
+
+        # 计算终端奖励点
+        dp = ref[0]
+        vp = np.diff(dp)[:-1]
+        tt = TerminalReward(aa, dp[-1], vp[-1]) * 0.01
+        tt_value = tt.item()
+
+        # 构造图像
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(y=V1, mode='lines', name='Q1'))
+        fig.add_trace(go.Scatter(y=V2, mode='lines', name='Q2'))
+        fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q3'))
+
+        # 添加终点散点
+        fig.add_trace(go.Scatter(x=[151], y=[tt_value], mode='markers', name='terminal',
+                                marker=dict(size=10, color='black', symbol='circle')))
+
+        # 添加标题和标签
+        fig.update_layout(
+            title='Different Q value vs k increase',
+            xaxis_title='k',
+            yaxis_title='Q value',
+            legend=dict(x=0.01, y=0.99),
+            template='plotly_white'
+        )
+
+        fig.write_image("V_plotly.png")  # 保存为静态图片（需要安装 `kaleido`）
+        fig.show()
+
+        '''  
+        return q1_loss.item(), q2_loss.item(), policy_loss.item(), alpha_loss.item()
+
+
+    def update(self, batch_size, Info=None):
+        q1_loss, q2_loss, policy_loss, alpha_loss = self.update_undone(batch_size, Info)
+        # q3_loss =   self.update_done(batch_size, Info)
+        return q1_loss, q2_loss,  policy_loss, alpha_loss, self.alpha
     
     
     def save(self, modelPath):

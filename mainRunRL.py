@@ -51,9 +51,7 @@ else:
 random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
-
 # add system path
-
 args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
@@ -179,7 +177,6 @@ def main():
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
-    terminal_sample = 100
     total_numsteps = 0
     for i in range(1, args.max_episode):
             episode_steps = 0
@@ -188,19 +185,19 @@ def main():
             episode_reward = 0
             for t in count():
                 # concat dp and env.k
-                dp[-1] = Env.k
                 action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
+                '''separate the done and undone buffer'''
                 # if done:
-                #     for oo in range(terminal_sample):
-                #         agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))
-                #     Info = {'done': done}
-                #     agent.update(args.batch_size, Info)
-                #     # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
-                # else:   
-                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial next_state be stored, but it will not be used for value estimation
+                #     agent.done_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial 
+                # else:
+                #     agent.undone_buffer.push((state, next_state, action, reward, float(done),dp))
+                ''''''
+                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))
+                
+                
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  
@@ -208,8 +205,8 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
-                    dfk = dp[int(dp[-1])] -state[j]
-                    writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                    # dfk = dp[int(dp[-1])] -state[j]
+                    # writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
                 
 
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
@@ -220,6 +217,8 @@ def main():
                 if done:
                     break
             q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+            
+            
             writer.add_scalar(f'Loss/Q1', q1_loss, i)
             writer.add_scalar(f'Loss/Q2', q2_loss, i)
             writer.add_scalar(f'Loss/Policy', policy_loss, i)
@@ -240,7 +239,6 @@ def main():
                     episode_reward = 0
                     done = False
                     for t in count():
-                        ref[-1] = Env.k
                         action = agent.select_action(state, ref=ref)
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward

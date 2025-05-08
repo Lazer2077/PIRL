@@ -8,7 +8,7 @@ import h5py
 
 ENABLE_DEBUG = True
 
-def TerminalReward(state,dp,vp):
+def TerminalReward(state,dp_final,vp_final):
     # get terminal reward
     # state: [s,v,a,dp,k]
     # action: [a]
@@ -19,11 +19,10 @@ def TerminalReward(state,dp,vp):
     w6 = 10**1
     ht = 1.5
     dmin = 1
-    df = dp[-1]-state[0]
-    vf = vp[-1]
-    v = state[1]
+    df = dp_final-state[::,0]
+    vf = vp_final-state[::,1]
     dsafe = vf*ht + dmin 
-    reward = w5*(df-dsafe)**2 +w6*(vf-v)**2
+    reward = w5*(df-dsafe)**2 +w6*(vf)**2
     return reward
     
 
@@ -79,12 +78,12 @@ class SimpleSpeed():
         # constraints
         self.dmax = 80
         self.dmin = 1
-        self.hlb = 0.5
+        self.ht = 1.5
         self.vmax = 25
         self.vmin = 0
         self.umax = 3
         self.umin = -3
-        self.dlbFunc = lambda v: self.dmin + self.hlb*v
+        
         self.dataPath = dataPath
         self.SELECT_OBSERVATION = SELECT_OBSERVATION
         if 'EnableOldFashion' in options.keys():
@@ -480,9 +479,6 @@ class SimpleSpeed():
             
         stateBatch = observationBatch[:,0:self.state_dim]
         
-        #TrajDict = {'d':{'follow': PrecInfo['dp']-stateBatch[:,0], 'ubnd': np.hstack((self.dmax*np.ones(self.N),self.df_final)), 'lbnd': np.hstack((self.dmin*np.ones(self.N),self.df_final))},
-                    # 'v': {'p_{}'.format(self.vehId): PrecInfo['vp'], 'opt': stateBatch[:,1], 'ubnd': np.hstack((self.vmax*np.ones(self.N),self.vfinal)), 'lbnd': np.hstack((self.vmin*np.ones(self.N),self.vfinal))}, 
-                    # 'a': {'opt': batch[2]}}
         TrajDict = {'d':{'follow': PrecInfo['d']-stateBatch[:,0], 'ubnd': np.hstack((self.dmax*np.ones(len(PrecInfo['t'])-1),df_final)), 'lbnd': np.hstack((self.dlbFunc(PrecInfo['v'][:-1]),df_final))},
                     'v': {'p_{}'.format(self.vehId): PrecInfo['v'], 'opt': stateBatch[:,1], 'ubnd': np.hstack((self.vmax*np.ones(len(PrecInfo['t'])-1),vfinal)), 'lbnd': np.hstack((self.vmin*np.ones(len(PrecInfo['t'])-1),vfinal))}, 
                     'a': {'opt': batch[2]}}
@@ -553,7 +549,8 @@ class SimpleSpeed():
             
             df = self.dp[-1]-d
             vf = self.vp[-1]
-            dmin = self.dlbFunc(vf)
+            
+            dmin = self.ht*vf + self.dmin
             reward = self.w5*(df-dmin)**2 +self.w6*(vf-v)**2
         else:
             reward = 0
