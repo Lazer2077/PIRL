@@ -16,7 +16,7 @@ parser.add_argument('--mode', default='train', type=str) # test or train
 parser.add_argument('--learning_rate', default=1e-4, type=int)
 parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
 parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
-parser.add_argument('--max_episode', default=12000, type=int) #  num of  games
+parser.add_argument('--max_episode', default=100, type=int) #  num of  games
 parser.add_argument('--batch_size', default=128, type=int) # mini batch size
 parser.add_argument('--seed', default=True, type=bool)
 parser.add_argument('--random_seed', default=526963494564900, type=int) # 108271139271800
@@ -52,7 +52,7 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
@@ -182,10 +182,13 @@ def main():
             episode_steps = 0
             state, _ = Env.reset()
             dp = Env.dp
+            vp = Env.vp
             episode_reward = 0
             for t in count():
                 # concat dp and env.k
-                action = agent.select_action(state, ref=dp)
+                dp[-1] = Env.k
+                ref = np.concatenate((dp, vp), axis=-1) 
+                action = agent.select_action(state, ref=ref)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
@@ -205,8 +208,8 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
-                    # dfk = dp[int(dp[-1])] -state[j]
-                    # writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                    dfk = dp[int(dp[-1])] -state[j]
+                    writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
                 
 
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
@@ -235,15 +238,18 @@ def main():
                 episodes = 10
                 for _  in range(episodes):
                     state, _ = Env.reset()
-                    ref = Env.dp
                     episode_reward = 0
                     done = False
+                    dp = Env.dp
+                    vp = Env.vp
                     for t in count():
+                        dp[-1] = Env.k
+                        ref = np.concatenate((dp, vp), axis=-1)
                         action = agent.select_action(state, ref=ref)
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward
                         done=terminated or truncated
-                        EvalReplayBuffer.push((state, next_state, action, reward, float(done),ref))
+                        EvalReplayBuffer.push((state, next_state, action, reward, float(done),dp))
                         state = next_state
                         if done:
                             break

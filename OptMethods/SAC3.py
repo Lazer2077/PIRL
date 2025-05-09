@@ -347,7 +347,7 @@ class SAC3:
             # df = torch.tensor(ref[:,-2]).to(self.device).reshape(-1,1).to(torch.float32)
             # simple_state_batch = torch.cat((state_batch[:, :2],df , vf), dim=-1)
             # next_q_value = undone_batch* (reward_batch + self.gamma * min_q_next) + (done_batch * self.Q_net3(simple_state_batch)*0.01)
-            next_q_value =reward_batch + self.gamma* min_q_next
+            next_q_value =reward_batch + undone_batch*self.gamma* min_q_next
 
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
@@ -398,26 +398,26 @@ class SAC3:
             aa[2] = i
             vv1 = self.Q_target_net1(aa, bb)
             vv2 = self.Q_target_net2(aa, bb)
-            vv3 = self.Q_target_net3(aa, bb)
+            # vv3 = self.Q_target_net3(aa, bb)
             V1.append(-vv1.item())
             V2.append(-vv2.item())
-            V3.append(-vv3.item())
+            # V3.append(-vv3.item())
 
         # 计算终端奖励点
         dp = ref[0]
-        vp = np.diff(dp)[:-1]
+        vp = np.diff(dp)[:-1]/0.1
         tt = TerminalReward(aa, dp[-1], vp[-1]) * 0.01
-        tt_value = tt.item()
+        # tt_value = 0
 
         # 构造图像
         fig = go.Figure()
 
         fig.add_trace(go.Scatter(y=V1, mode='lines', name='Q1'))
         fig.add_trace(go.Scatter(y=V2, mode='lines', name='Q2'))
-        fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q3'))
+        # fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q3'))
 
         # 添加终点散点
-        fig.add_trace(go.Scatter(x=[151], y=[tt_value], mode='markers', name='terminal',
+        fig.add_trace(go.Scatter(x=[151], y=[tt.item()], mode='markers', name='terminal',
                                 marker=dict(size=10, color='black', symbol='circle')))
 
         # 添加标题和标签

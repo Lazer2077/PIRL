@@ -11,7 +11,7 @@ from .lib.ReplayBuffer import Replay_buffer
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
 EPSILON = 1e-6
-# torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(False)
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
@@ -230,7 +230,7 @@ class SAC:
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
     def update(self, batch_size, Info=None):
-        x, y, u, r, d,_ = self.replay_buffer.sample(batch_size)
+        x, y, u, r, d,ref = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)

@@ -19,8 +19,12 @@ def TerminalReward(state,dp_final,vp_final):
     w6 = 10**1
     ht = 1.5
     dmin = 1
-    df = dp_final-state[::,0]
-    vf = vp_final-state[::,1]
+    if len(state.shape) == 1:
+        df = dp_final-state[0]
+        vf = vp_final-state[1]
+    else:
+        df = dp_final-state[:,0]
+        vf = vp_final-state[:,1]
     dsafe = vf*ht + dmin 
     reward = w5*(df-dsafe)**2 +w6*(vf)**2
     return reward
@@ -574,18 +578,17 @@ class SimpleSpeed():
         # df_final, vfinal = self.getDesiredFinalStates(obs, k)
         dp = self.dp[self.k]
         vp = self.vp[self.k]
-
         df = dp-d 
         
         df_upper_penalty = max(df-self.dmax,0)
         df_lower_penalty = max(self.dmin-df,0)
+        reward = 0
         if self.k == self.N:
             reward = self.getTerminalReward(xVar, action)
         else:
             pow=(p1*v+p2*(v**3)+p3*(v*a))
-            reward =  self.w1*(a**2) + self.w2*(pow)
-            reward = self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)
-
+            reward +=  self.w1*(a**2) + self.w2*(pow)
+            reward += self.w3*(df_upper_penalty**2) + self.w4*(df_lower_penalty**2)
         reward = -reward*0.01
         return torch.tensor([reward]) 
 
