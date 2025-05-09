@@ -343,11 +343,11 @@ class SAC3:
             q1_next = self.Q_target_net1(next_state_batch, next_action)
             q2_next = self.Q_target_net2(next_state_batch, next_action)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            # vf  =torch.tensor(np.diff(ref)[:,-2]/0.1).to(self.device).reshape(-1,1).to(torch.float32)
-            # df = torch.tensor(ref[:,-2]).to(self.device).reshape(-1,1).to(torch.float32)
-            # simple_state_batch = torch.cat((state_batch[:, :2],df , vf), dim=-1)
-            # next_q_value = undone_batch* (reward_batch + self.gamma * min_q_next) + (done_batch * self.Q_net3(simple_state_batch)*0.01)
-            next_q_value =reward_batch + undone_batch*self.gamma* min_q_next
+            vf = torch.tensor(np.diff(ref)[:,-2]/0.1).to(self.device).reshape(-1,1).to(torch.float32)
+            df = torch.tensor(ref[:,-2]).to(self.device).reshape(-1,1).to(torch.float32)
+            simple_state_batch = torch.cat((state_batch[:, :2],df , vf), dim=-1)
+            next_q_value = undone_batch* (reward_batch + self.gamma * min_q_next) + (done_batch * self.Q_net3(simple_state_batch)*0.01)
+            # next_q_value =reward_batch + undone_batch*self.gamma* min_q_next
 
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)

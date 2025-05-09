@@ -16,7 +16,7 @@ parser.add_argument('--mode', default='train', type=str) # test or train
 parser.add_argument('--learning_rate', default=1e-4, type=int)
 parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
 parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
-parser.add_argument('--max_episode', default=100, type=int) #  num of  games
+parser.add_argument('--max_episode', default=150, type=int) #  num of  games
 parser.add_argument('--batch_size', default=128, type=int) # mini batch size
 parser.add_argument('--seed', default=True, type=bool)
 parser.add_argument('--random_seed', default=526963494564900, type=int) # 108271139271800
@@ -52,7 +52,7 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
@@ -187,8 +187,8 @@ def main():
             for t in count():
                 # concat dp and env.k
                 dp[-1] = Env.k
-                ref = np.concatenate((dp, vp), axis=-1) 
-                action = agent.select_action(state, ref=ref)
+                # ref = np.concatenate((dp, vp), axis=-1) 
+                action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
@@ -244,8 +244,8 @@ def main():
                     vp = Env.vp
                     for t in count():
                         dp[-1] = Env.k
-                        ref = np.concatenate((dp, vp), axis=-1)
-                        action = agent.select_action(state, ref=ref)
+                        # ref = np.concatenate((dp, vp), axis=-1)
+                        action = agent.select_action(state, ref=dp)
                         next_state, reward, terminated, truncated, _ = Env.step(action)
                         episode_reward += reward
                         done=terminated or truncated

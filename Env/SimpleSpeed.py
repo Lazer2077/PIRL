@@ -7,7 +7,8 @@ import torch
 import h5py
 
 ENABLE_DEBUG = True
-
+w5 = 10**0
+w6 = 10**1
 def TerminalReward(state,dp_final,vp_final):
     # get terminal reward
     # state: [s,v,a,dp,k]
@@ -15,8 +16,7 @@ def TerminalReward(state,dp_final,vp_final):
     # dp: [dp]
     # vp: [vp]
     # get terminal reward
-    w5 = 10**0
-    w6 = 10**1
+    
     ht = 1.5
     dmin = 1
     if len(state.shape) == 1:
@@ -76,8 +76,8 @@ class SimpleSpeed():
         self.w2 = 10**-3; # power weight 
         self.w3 = 10**0; # soft car following s1 df_max
         self.w4 = 10**0; # soft car following s2 df_min 
-        self.w5 = 10**0; # terminal d
-        self.w6 = 10**1; # terminal v
+        self.w5 = w5; # terminal d
+        self.w6 = w6; # terminal v
              
         # constraints
         self.dmax = 80
