@@ -16,7 +16,7 @@ parser.add_argument('--mode', default='train', type=str) # test or train
 parser.add_argument('--learning_rate', default=1e-4, type=int)
 parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
 parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
-parser.add_argument('--max_episode', default=150, type=int) #  num of  games
+parser.add_argument('--max_episode', default=3000, type=int) #  num of  games
 parser.add_argument('--batch_size', default=128, type=int) # mini batch size
 parser.add_argument('--seed', default=True, type=bool)
 parser.add_argument('--random_seed', default=526963494564900, type=int) # 108271139271800
@@ -57,6 +57,7 @@ args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','Half
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
+SEP_BUFFER = True if 'SAC3' in args.OPT_METHODS else False  
 
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
@@ -192,15 +193,19 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                '''separate the done and undone buffer'''
-                # if done:
-                #     agent.done_buffer.push((state, next_state, action, reward, float(done),dp)) # when done, there will be an artificial 
-                # else:
-                #     agent.undone_buffer.push((state, next_state, action, reward, float(done),dp))
-                ''''''
-                agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))
-                
-                
+                if SEP_BUFFER:
+                    
+                    if Env.k<51:
+                        done1 = (Env.k==50)
+                        agent.replay_buffer.push((state, next_state, action, reward, float(done1),dp))
+                    elif 51 <=Env.k < 101 :
+                        done2 = (Env.k==100)
+                        agent.replay_buffer2.push((state, next_state, action, reward, float(done2),dp))
+                    else:
+                        agent.replay_buffer3.push((state, next_state, action, reward, float(done),dp))
+                else:   
+                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  
@@ -219,8 +224,12 @@ def main():
                         agent.update(args.batch_size, Info)
                 if done:
                     break
-            q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-            
+            if SEP_BUFFER:      
+                Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+                q1_loss, q2_loss, q3_loss = Q_loss
+                writer.add_scalar(f'Loss/Q3', q3_loss, i)
+            else:   
+                q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
             
             writer.add_scalar(f'Loss/Q1', q1_loss, i)
             writer.add_scalar(f'Loss/Q2', q2_loss, i)
