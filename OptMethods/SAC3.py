@@ -369,7 +369,7 @@ class SAC3:
 
     def update(self, batch_size, Info=None):
         Q_loss_list = []
-        for i in range(3):
+        for i in range(len(self.Q_net_list)):
             x, y, u, r, d, ref = self.replay_buffer_list[i].sample(batch_size)
             state_batch = torch.FloatTensor(x).to(self.device)
             action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
@@ -380,8 +380,10 @@ class SAC3:
             with torch.no_grad():
                 next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
                 q_next = self.Q_net_list[i](next_state_batch, next_action)
-                next_q_value = reward_batch + undone_batch*self.gamma* q_next
-            
+                if i==2:
+                    next_q_value = reward_batch + undone_batch*self.gamma* q_next
+                else:
+                    next_q_value = reward_batch + self.gamma* q_next
             # align loss:
             if i<2:
                 Qi_ = done_batch* self.Q_net_list[i](next_state_batch, next_action) # Q1(50)

@@ -52,12 +52,12 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.ENV_NAME = 'NonLinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
-SEP_BUFFER = True if 'SAC3' in args.OPT_METHODS else False  
+SEP_BUFFER = False
 
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
@@ -95,6 +95,16 @@ if args.ENV_NAME == 'SimpleSpeed':
     # construct continuous action space on gym 
     action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
     
+elif args.ENV_NAME == 'NonLinear':
+    from Env import NonLinear
+    Env = NonLinear()
+    action_dim = Env.u_dim
+    state_dim = Env.x_dim
+    action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
+    ScalingDict = {}    
+    args.is_discrete = False    
+    
+
 else:
     Env = gym.make(args.ENV_NAME)
     if isinstance(Env.action_space, gym.spaces.Discrete):
@@ -194,7 +204,6 @@ def main():
                 episode_reward += reward
                 done=terminated or truncated
                 if SEP_BUFFER:
-                    
                     if Env.k<51:
                         done1 = (Env.k==50)
                         agent.replay_buffer.push((state, next_state, action, reward, float(done1),dp))
@@ -215,62 +224,65 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
                     dfk = dp[int(dp[-1])] -state[j]
                     writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
                 
 
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
                         Info['iUpdate'] = iUp
-                        agent.update(args.batch_size, Info)
+                        q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
+                        writer.add_scalar(f'Loss/Q1', q1_loss, i)
+                        writer.add_scalar(f'Loss/Q2', q2_loss, i)
+                        writer.add_scalar(f'Loss/Policy', policy_loss, i)
+                        writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
+                        writer.add_scalar(f'Loss/Alpha', alpha, i)
                 if done:
                     break
             if SEP_BUFFER:      
                 Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
                 q1_loss, q2_loss, q3_loss = Q_loss
                 writer.add_scalar(f'Loss/Q3', q3_loss, i)
-            else:   
-                q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+            # else:   
+            #     q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
             
-            writer.add_scalar(f'Loss/Q1', q1_loss, i)
-            writer.add_scalar(f'Loss/Q2', q2_loss, i)
-            writer.add_scalar(f'Loss/Policy', policy_loss, i)
-            writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
-            writer.add_scalar(f'Loss/Alpha', alpha, i)
+
  
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
             writer.add_scalar('Episode/Reward', episode_reward, i)
-           
-            if (args.ENABLE_VALIDATION) & (i % args.eval_interval == 0):
-                EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
-                avg_reward = 0.
-                episodes = 10
-                for _  in range(episodes):
-                    state, _ = Env.reset()
-                    episode_reward = 0
-                    done = False
-                    dp = Env.dp
-                    vp = Env.vp
-                    for t in count():
-                        dp[-1] = Env.k
-                        # ref = np.concatenate((dp, vp), axis=-1)
-                        action = agent.select_action(state, ref=dp)
-                        next_state, reward, terminated, truncated, _ = Env.step(action)
-                        episode_reward += reward
-                        done=terminated or truncated
-                        EvalReplayBuffer.push((state, next_state, action, reward, float(done),dp))
-                        state = next_state
-                        if done:
-                            break
-                    avg_reward += episode_reward
-                    #plotResults(agent, i, t)
-                avg_reward /= episodes
+            if (i % args.eval_interval == 0):
                 agent.save(savePath)
-                iStepEvaluation += 1
-                writer.add_scalar('Test/Reward', avg_reward, i)
-                print("----------------------------------------")
-                print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
-                print("----------------------------------------")
+                if (args.ENABLE_VALIDATION) :
+                    EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
+                    avg_reward = 0.
+                    episodes = 10
+                    for _  in range(episodes):
+                        state, _ = Env.reset()
+                        episode_reward = 0
+                        done = False
+                        dp = Env.dp
+                        vp = Env.vp
+                        for t in count():
+                            dp[-1] = Env.k
+                            # ref = np.concatenate((dp, vp), axis=-1)
+                            action = agent.select_action(state, ref=dp)
+                            next_state, reward, terminated, truncated, _ = Env.step(action)
+                            episode_reward += reward
+                            done=terminated or truncated
+                            EvalReplayBuffer.push((state, next_state, action, reward, float(done),dp))
+                            state = next_state
+                            if done:
+                                break
+                        avg_reward += episode_reward
+                        #plotResults(agent, i, t)
+                    avg_reward /= episodes
+                    
+                    iStepEvaluation += 1
+                    writer.add_scalar('Test/Reward', avg_reward, i)
+                    print("----------------------------------------")
+                    print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
+                    print("----------------------------------------")
 
 if __name__ == '__main__':
     main()
