@@ -59,15 +59,6 @@ args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
 SEP_BUFFER = False
 
-if 'ddpg' in args.OPT_METHODS.lower():
-    args.exploration_noise = 0.5
-    args.dynamic_noise = False
-    args.batch_size = 100
-    args.gamma = 1
-    args.update_iteration = 200
-    args.buffer_warm_size = 1000
-    args.actor_learning_rate = 1e-4
-    args.critic_learning_rate = 1e-3
 if 'sac' in args.OPT_METHODS.lower():
     args.policy_type = 'Gaussian'
     
@@ -189,8 +180,18 @@ else:
         savePath, port, 10
     )
 os.system(cmd_line)
-
+from Env.SimpleSpeed import TerminalReward
 import OptMethods
+
+def generate_random_terminal(state, action, dp, ScalingDict):
+    nState = 2
+    x_mean = ScalingDict['xMean'][:nState]
+    x_std = ScalingDict['xStd'][:nState]
+    # random add noise to state
+    noise = np.random.normal(0, 1, size=state[:nState].shape)
+    state[:nState] =  x_mean + x_std * noise
+    return TerminalReward(state, action, dp)
+
 def main():
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
@@ -213,21 +214,10 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                if SEP_BUFFER:
-                    if Env.k<51:
-                        done1 = (Env.k==50)
-                        agent.replay_buffer.push((state, next_state, action, reward, float(done1),dp))
-                    elif 51 <=Env.k < 101 :
-                        done2 = (Env.k==100)
-                        agent.replay_buffer2.push((state, next_state, action, reward, float(done2),dp))
-                    else:
-                        agent.replay_buffer3.push((state, next_state, action, reward, float(done),dp))
-                else:   
-                    
-                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
-                    
                 state = next_state
                 episode_steps += 1
+                reward_N = generate_random_terminal(state, action, dp, ScalingDict)
+                agent.replay_buffer.push((state, next_state, action, reward, float(done), reward_N))    
                 if i % 10 == 0:  
                     for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
@@ -256,9 +246,6 @@ def main():
                 writer.add_scalar(f'Loss/Q3', q3_loss, i)
             # else:   
             #     q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-            
-
- 
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
             writer.add_scalar('Episode/Reward', episode_reward, i)

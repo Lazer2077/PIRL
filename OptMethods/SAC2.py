@@ -6,22 +6,71 @@ import torch.optim as optim
 from torch.distributions import Normal, Categorical
 import numpy as np
 from torch.optim import Adam
-from .lib.ReplayBuffer import Replay_buffer
+from operator import itemgetter
 
+class Replay_buffer():
+    def __init__(self, max_size=10000):
+        self.storage = []
+        self.max_size = max_size
+        self.ptr = 0
+
+    def push(self, data):
+        if len(self.storage) == self.max_size:
+            self.storage[int(self.ptr)] = data
+            self.ptr = (self.ptr + 1) % self.max_size
+        else:
+            self.storage.append(data)
+
+    def sample(self, batch_size):
+        # batch = random.sample(self.storage, batch_size)
+        # x, y, u, r, d = map(np.stack, zip(*batch))
+        ind = np.random.randint(0, len(self.storage), size=batch_size)
+        x, y, u, r, d,  rn = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+
+        return x,y,u,r,d,rn
+    
+    def getEpisodeBatch(self, steps):
+
+        if len(self.storage) == 0:
+            return
+        
+        if len(self.storage) == self.max_size:
+            idx = self.ptr % self.max_size
+            if idx-steps-1 < 0:
+                idxList = np.concatenate((np.arange(self.max_size-(steps+1-idx), self.max_size),np.arange(0,idx)))
+            else:
+                idxList = np.arange(idx-steps-1,idx)
+        else:
+            idxList = np.arange(len(self.storage)-steps-1,len(self.storage))
+        batch = list(zip(*itemgetter(*idxList)(self.storage)))
+        # if observation is numpy
+        if isinstance(batch[0][0], np.ndarray):
+            observationBatch = np.array(batch[0])
+            observationNextBatch = np.array(batch[1])
+            actionBatch = np.array(batch[2])
+            rewardBatch = np.array(batch[3])
+        else:
+            observationBatch = torch.stack(batch[0]).cpu().data.numpy()
+            observationNextBatch = torch.stack(batch[1]).cpu().data.numpy()
+            actionBatch = torch.stack(batch[2]).cpu().data.numpy().flatten()
+            rewardBatch = torch.stack(batch[3]).cpu().data.numpy().flatten()
+        doneBatch = np.array(batch[4])
+        reward_NBatch = np.array(batch[5])
+
+        return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, reward_NBatch)
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
 EPSILON = 1e-6
-# torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(False)
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
 class GaussianPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, xMean, xStd, action_space=None):
+    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
         super(GaussianPolicy, self).__init__()
-        self.xmean = xMean
-        self.xstd = xStd
+        
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
@@ -41,8 +90,6 @@ class GaussianPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
-        state = (state - self.xmean) / self.xstd
-        
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = self.mean_linear(x)
@@ -67,16 +114,12 @@ class GaussianPolicy(nn.Module):
     def to(self, device):
         self.action_scale = self.action_scale.to(device)
         self.action_bias = self.action_bias.to(device)
-        self.xmean = self.xmean.to(device)
-        self.xstd = self.xstd.to(device)
         return super(GaussianPolicy, self).to(device)
 
 
 class DeterministicPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, xMean, xStd, action_space=None):
+    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
         super(DeterministicPolicy, self).__init__()
-        self.xmean = xMean
-        self.xstd = xStd
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
@@ -96,7 +139,6 @@ class DeterministicPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.)
 
     def forward(self, state):
-        state = (state - self.xmean) / self.xstd
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
@@ -141,82 +183,33 @@ class Actor(nn.Module):
             log_std = torch.clamp(log_std, LOG_SIG_MIN, LOG_SIG_MAX)
             return mu, log_std
 
-
-
-class GatedQNetwork(nn.Module):
-    def __init__(self, state_dim, action_dim, xMean, xStd,hidden_dim = 128):
-        super().__init__()
-        self.xmean = xMean
-        self.xstd = xStd
+class Q(nn.Module):
+    def __init__(self, state_dim, action_dim, xMean, xStd, hidden_dim=512, is_discrete=False):
+        super(Q, self).__init__()
+        self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+        # self.fc_model = nn.Linear(hidden_dim, state_dim)
         self.state_dim = state_dim
         self.action_dim = action_dim
-        
-        self.encoder = nn.Sequential(
-            nn.Linear(state_dim + action_dim, hidden_dim),
-            nn.ReLU(),
-        )
-        self.q_normal = nn.Sequential(
-            nn.Linear(hidden_dim, 1)
-        )
-        self.q_terminal = nn.Sequential(
-            nn.Linear(hidden_dim, 1)
-        )
-        self.gate = nn.Sequential(
-            nn.Linear(state_dim, 1),
-            nn.Sigmoid()
-        )
-    
+        self.xmean = xMean
+        self.xstd = xStd
+        self.is_discrete = is_discrete
+        self.apply(weights_init_)
+
     def forward(self, s, a):
         s = (s - self.xmean[:self.state_dim]) / self.xstd[:self.state_dim]
-        a = (a - self.xmean[self.state_dim:]) / self.xstd[self.state_dim:]
-        sa = torch.cat([s, a], dim=-1)
-        h = self.encoder(sa)
-        q_n = self.q_normal(h)
-        q_t = self.q_terminal(h)
-        g = self.gate(s)
-        q_total = (1 - g) * q_n + g * q_t
-        return q_total
-
-class BoolGatedQNetwork(nn.Module):
-    def __init__(self, state_dim, action_dim, xMean, xStd, hidden_dim=128):
-        super().__init__()
-        self.xmean = xMean
-        self.xstd = xStd
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        # Q normal: 普通 Q 网络
-        self.q_normal_net = nn.Sequential(
-            nn.Linear(state_dim + action_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
-        )
-        # Q terminal: 终点代价估计
-        self.q_terminal_net = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
-        )
-
-    def forward(self, s, a, is_terminal):
-        """
-        s:           [B, state_dim]
-        a:           [B, action_dim]
-        is_terminal: [B, 1] (bool or float tensor, 0 or 1)
-        """
-        s = (s - self.xmean[:self.state_dim]) / self.xstd[:self.state_dim]
-        a = (a - self.xmean[self.state_dim:]) / self.xstd[self.state_dim:]
-        
-        sa = torch.cat([s, a], dim=-1)         # [B, state+action]
-        q_normal = self.q_normal_net(sa)       # [B, 1]
-        q_terminal = self.q_terminal_net(s)    # [B, 1]
-
-        is_terminal = is_terminal.float()
-
-        q_total = (1.0 - is_terminal) * q_normal + is_terminal * q_terminal
-        return q_total
+        if self.is_discrete:
+            a = F.one_hot(a.to(torch.int64), num_classes=self.action_dim).float()
+        x = torch.cat((s, a), -1)
+        x = (x - self.xmean) / self.xstd
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+    
 
 
-class SAC:
+class SAC2:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
         self.gamma = args.gamma
         self.tau = args.tau
@@ -227,8 +220,6 @@ class SAC:
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning   
         self.replay_buffer = Replay_buffer()
-        xmean = ScalingDict.get('xMean', torch.zeros(state_dim)).to(device)
-        xstd = ScalingDict.get('xStd', torch.ones(state_dim)).to(device)
 
 
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
@@ -236,10 +227,10 @@ class SAC:
         xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),
                            ScalingDict.get('uStd', torch.ones(self.action_dim)).to(device)])
 
-        self.Q_net1 = GatedQNetwork(state_dim, self.action_dim, xumean, xustd).to(device)
-        self.Q_net2 = GatedQNetwork(state_dim, self.action_dim, xumean, xustd).to(device)
-        self.Q_target_net1 = GatedQNetwork(state_dim, self.action_dim, xumean, xustd).to(device)
-        self.Q_target_net2 = GatedQNetwork(state_dim, self.action_dim, xumean, xustd).to(device)
+        self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_target_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_target_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
 
         self.Q1_optimizer = Adam(self.Q_net1.parameters(), lr=args.learning_rate)
         self.Q2_optimizer = Adam(self.Q_net2.parameters(), lr=args.learning_rate)
@@ -256,9 +247,9 @@ class SAC:
                 self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
                 self.alpha_optim = Adam([self.log_alpha], lr=args.learning_rate)
 
-            self.policy_net = GaussianPolicy(state_dim, action_space.shape[0], args.hidden_size, xmean, xstd, action_space).to(self.device)
+            self.policy_net = GaussianPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
         else:
-            self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, xmean, xstd, action_space).to(self.device)
+            self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
         self.policy_optimizer = Adam(self.policy_net.parameters(), lr=args.learning_rate)
 
     def select_action(self, state, evaluate=False,ref=None):
@@ -289,11 +280,12 @@ class SAC:
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
     def update(self, batch_size, Info=None):
-        x, y, u, r, d,_ = self.replay_buffer.sample(batch_size)
+        x, y, u, r, d, rN = self.replay_buffer.sample(batch_size)
         state_batch = torch.FloatTensor(x).to(self.device)
         action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
         next_state_batch = torch.FloatTensor(y).to(self.device)
         reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
+        undone_batch = torch.FloatTensor(d).reshape(-1, 1).to(self.device)
         done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
 
         with torch.no_grad():
@@ -302,14 +294,14 @@ class SAC:
             q2_next = self.Q_target_net2(next_state_batch, next_action)
             # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
             min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            next_q_value = reward_batch + done_batch * self.gamma * min_q_next
+            next_q_value  = reward_batch + done_batch * self.gamma * min_q_next
+            
 
         qf1 = self.Q_net1(state_batch, action_batch)
         qf2 = self.Q_net2(state_batch, action_batch)
         
         q1_loss = F.mse_loss(qf1, next_q_value)
         q2_loss = F.mse_loss(qf2, next_q_value)
-        
         
         self.Q1_optimizer.zero_grad()
         self.Q2_optimizer.zero_grad()
@@ -349,7 +341,13 @@ class SAC:
         torch.save(self.Q_target_net1.state_dict(), os.path.join(modelPath, 'Q_target_net1.pth'))
         torch.save(self.Q_target_net2.state_dict(), os.path.join(modelPath, 'Q_target_net2.pth'))
         #torch.save(self.critic_target.state_dict(), os.path.join(savePath, 'critic_target.pth'))
-
         print("====================================")
         print("Model has been saved...")
         print("====================================")
+    def load(self, modelPath):
+        import os
+        self.policy_net.load_state_dict(torch.load(os.path.join(modelPath, 'policy_net.pth')))
+        self.Q_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net1.pth')))
+        self.Q_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net2.pth')))
+        self.Q_target_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net1.pth')))
+        self.Q_target_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net2.pth')))

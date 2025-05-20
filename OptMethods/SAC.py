@@ -294,3 +294,10 @@ class SAC:
         print("====================================")
         print("Model has been saved...")
         print("====================================")
+    def load(self, modelPath):
+        import os
+        self.policy_net.load_state_dict(torch.load(os.path.join(modelPath, 'policy_net.pth')))
+        self.Q_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net1.pth')))
+        self.Q_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net2.pth')))
+        self.Q_target_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net1.pth')))
+        self.Q_target_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net2.pth')))

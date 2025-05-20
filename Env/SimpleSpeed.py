@@ -29,7 +29,6 @@ def TerminalReward(state,dp_final,vp_final):
     reward = w5*(df-dsafe)**2 +w6*(vf)**2
     return reward
     
-
 class SimpleSpeed():
     def __init__(self, dataPath, SELECT_PREC_ID=None, SELECT_OBSERVATION='state', options={}):
         self.Debug = {} # debug variable dict
@@ -444,8 +443,6 @@ class SimpleSpeed():
         # clip action
         # dmin = self.dlbFunc(self.vfinal)
         obs = self.observation.reshape((-1,self.obs_dim))
-
-
         # state = self.state
         stateNext = self.getNextState(self.state, action)
         self.state = stateNext[0,:]

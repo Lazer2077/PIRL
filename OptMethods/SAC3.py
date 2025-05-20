@@ -28,9 +28,9 @@ class Replay_buffer():
         # batch = random.sample(self.storage, batch_size)
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
-        x, y, u, r, d, ref = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+        x, y, u, r, d,rn = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
 
-        return x,y,u,r,d,ref
+        return x,y,u,r,d,rn
     
     def getEpisodeBatch(self, steps):
 
@@ -58,9 +58,9 @@ class Replay_buffer():
             actionBatch = torch.stack(batch[2]).cpu().data.numpy().flatten()
             rewardBatch = torch.stack(batch[3]).cpu().data.numpy().flatten()
         doneBatch = np.array(batch[4])
-        refBatch = np.array(batch[5])
+        reward_NBatch = np.array(batch[5])
 
-        return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, refBatch)
+        return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, reward_NBatch)
 
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
@@ -142,7 +142,7 @@ class DeterministicPolicy(nn.Module):
             self.action_bias = torch.FloatTensor(
                 (action_space.high + action_space.low) / 2.)
 
-    def forward(self, state):
+    def forward(self, state, N_minusk, rN):
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
