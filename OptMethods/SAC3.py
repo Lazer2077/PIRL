@@ -23,14 +23,17 @@ class Replay_buffer():
             self.ptr = (self.ptr + 1) % self.max_size
         else:
             self.storage.append(data)
-
+            
+    def pop(self):
+        return self.storage.pop()
+    
     def sample(self, batch_size):
         # batch = random.sample(self.storage, batch_size)
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
-        x, y, u, r, d,rn = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+        x, y, u, r, d , ref = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
 
-        return x,y,u,r,d,rn
+        return x,y,u,r,d,ref
     
     def getEpisodeBatch(self, steps):
 
@@ -211,28 +214,6 @@ class Q(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
-# class TerminalQ(nn.Module):
-#     def __init__(self,  xMean, xStd, state_dim=4, hidden_dim=256):
-#         super(TerminalQ, self).__init__()
-#         self.fc1 = nn.Linear(state_dim, hidden_dim)
-#         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-#         self.fc3 = nn.Linear(hidden_dim, 1)
-#         self.xmean = torch.tensor(xMean, dtype=torch.float32).to('cuda')
-#         self.xstd = torch.tensor(xStd, dtype=torch.float32).to('cuda')
-#     def forward(self, s):
-#         s = (s - self.xmean) / self.xstd
-#         x = F.gelu(self.fc1(s))
-#         x = F.gelu(self.fc2(x))
-#         return self.fc3(x)
-    
-    
-# def load_Q3(path = 'terminal.pth'):
-#     X_mean = torch.load(path)['X_mean']
-#     X_std = torch.load(path)['X_std']
-#     model = TerminalQ(X_mean, X_std).to('cuda')
-#     model.load_state_dict(torch.load(path)['model'])
-#     return model    
-
 class SAC3:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
         self.gamma = args.gamma
@@ -242,13 +223,13 @@ class SAC3:
         self.state_dim = state_dim
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
-        self.automatic_entropy_tuning = args.automatic_entropy_tuning   
-        '''separate the done and undone buffer'''        
+        self.automatic_entropy_tuning = args.automatic_entropy_tuning
+        self.N = 150
         self.replay_buffer = Replay_buffer()
         self.replay_buffer2 = Replay_buffer()
         self.replay_buffer3 = Replay_buffer()
-        self.replay_buffer_list = [self.replay_buffer, self.replay_buffer2, self.replay_buffer3]
-        ''''''
+        # '''
+        self.replay_buffer_list = [self.replay_buffer,self.replay_buffer2,self.replay_buffer3]
         
 
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
@@ -316,57 +297,7 @@ class SAC3:
             log_det = log_det.sum(dim=-1, keepdim=True)
             log_prob = dist.log_prob(x_t) - log_det
             return action, log_prob, mu, log_std, torch.tanh(mu)
-
         
-        ''' test code
-        import plotly.graph_objects as go
-        from Env.SimpleSpeed import TerminalReward
-        import numpy as np
-
-        aa = next_state_batch[0].detach().clone()
-        bb = next_action[0]
-        V1, V2, V3 = [], [], []
-
-        # 计算 Q 值曲线
-        for i in range(151):
-            aa[2] = i
-            vv1 = self.Q_target_net1(aa, bb)
-            vv2 = self.Q_target_net2(aa, bb)
-            # vv3 = self.Q_target_net3(aa, bb)
-            V1.append(-vv1.item())
-            V2.append(-vv2.item())
-            # V3.append(-vv3.item())
-
-        # 计算终端奖励点
-        dp = ref[0]
-        vp = np.diff(dp)[:-1]/0.1
-        tt = TerminalReward(aa, dp[-1], vp[-1]) * 0.01
-        # tt_value = 0
-
-        # 构造图像
-        fig = go.Figure()
-
-        fig.add_trace(go.Scatter(y=V1, mode='lines', name='Q1'))
-        fig.add_trace(go.Scatter(y=V2, mode='lines', name='Q2'))
-        # fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q3'))
-
-        # 添加终点散点
-        fig.add_trace(go.Scatter(x=[151], y=[tt.item()], mode='markers', name='terminal',
-                                marker=dict(size=10, color='black', symbol='circle')))
-
-        # 添加标题和标签
-        fig.update_layout(
-            title='Different Q value vs k increase',
-            xaxis_title='k',
-            yaxis_title='Q value',
-            legend=dict(x=0.01, y=0.99),
-            template='plotly_white'
-        )
-
-        fig.write_image("V_plotly.png")  # 保存为静态图片（需要安装 `kaleido`）
-        fig.show()
-        '''  
-
     def update(self, batch_size, Info=None):
         Q_loss_list = []
         for i in range(len(self.Q_net_list)):
@@ -379,24 +310,24 @@ class SAC3:
             reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)  
             with torch.no_grad():
                 next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-                q_next = self.Q_net_list[i](next_state_batch, next_action)
-                if i==2:
-                    next_q_value = reward_batch + undone_batch*self.gamma* q_next
-                else:
-                    next_q_value = reward_batch + self.gamma* q_next
+                # next_state_batch1 = next_state_batch.clone()
+                # next_state_batch2 = next_state_batch.clone()
+                # next_state_batch1[:,2] = int(self.N/3)
+                # next_state_batch2[:,2] = int(self.N*2/3)
+                # if i == 0:
+                #     q_next = self.Q_net_list[i](next_state_batch, next_action)
+                # elif i == 1:
+                #     q_next = self.Q_net_list[i](next_state_batch, next_action)
+                # else:
+                #     q_next = self.Q_net_list[i](next_state_batch, next_action) 
+                q_next = self.Q_net_list[i](next_state_batch, next_action) 
+                next_q_value = reward_batch + done_batch*self.gamma* q_next
             # align loss:
-            if i<2:
-                Qi_ = done_batch* self.Q_net_list[i](next_state_batch, next_action) # Q1(50)
-                Qi_next = done_batch*self.Q_net_list[i+1](next_state_batch, next_action) # Q2(50)
-                loss_align = F.mse_loss(Qi_, Qi_next)
-            else:
-                loss_align = 0
-            
-                        
+       
             qf = self.Q_net_list[i](state_batch, action_batch)
             q_loss = F.mse_loss(qf, next_q_value)
             self.Q_optimizer[i].zero_grad()
-            (q_loss+loss_align).backward()
+            (q_loss).backward()
             self.Q_optimizer[i].step()
             Q_loss_list.append(q_loss.item())
             pi, log_prob, _ = self.policy_net.sample(state_batch)

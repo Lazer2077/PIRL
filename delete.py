@@ -10,7 +10,7 @@ def get_dir_size(path):
                 total_size += os.path.getsize(fp)
     return total_size
 
-def remove_small_dirs(parent_dir, threshold_bytes=400):
+def remove_small_dirs(parent_dir, threshold_bytes=1000000):
     for entry in os.listdir(parent_dir):
         entry_path = os.path.join(parent_dir, entry)
         if os.path.isdir(entry_path):

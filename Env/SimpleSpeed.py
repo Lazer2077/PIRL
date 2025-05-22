@@ -6,17 +6,85 @@ import random
 import torch
 import h5py
 
+
+def plot_Q(self, next_state_batch, next_action, ref):
+    import plotly.graph_objects as go
+    from Env.SimpleSpeed import TerminalReward
+    import numpy as np
+    import torch
+    # 初始化状态向量和动作
+    aa = torch.tensor([8.6505e+01,  1.5167e+01,  7.7000e+01, -6.1627e-05, -8.4444e-03,
+                       1.7871e+00,  1.0851e-01,  1.1398e-04, -3.0499e-02,  2.7067e+00,
+                      -1.1804e+01, -1.3323e-18,  0.0000e+00, -2.2737e-14,  6.5178e+01]).to(self.device).reshape((1,-1))
+    bb = torch.tensor(0.7594).reshape((1,-1)).to(self.device)
+
+    V1, V2, V3 = [], [], []
+
+    # 计算 Q 值曲线
+    for i in range(151):
+        aa[:,2] = i  # 修改目标变量
+        vv1 = self.Q_target_net1(aa, bb)
+        vv2 = self.Q_target_net2(aa, bb)
+        vv3 = self.Q_target_net3(aa, bb)
+        V1.append(-vv1.item())
+        V2.append(-vv2.item())
+        V3.append(-vv3.item())
+
+    # 终端奖励
+    dp = ref[0]
+    vp = np.diff(dp)[:-1] / 0.1
+    tt = TerminalReward(aa, dp[-1], vp[-1]) * 0.01
+
+    # 绘图
+    fig = go.Figure()
+
+    # 添加Q曲线
+    fig.add_trace(go.Scatter(y=V1, mode='lines', name='Q₁', line=dict(color='royalblue', width=2)))
+    fig.add_trace(go.Scatter(y=V2, mode='lines', name='Q₂', line=dict(color='darkorange', width=2)))
+    fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q₃', line=dict(color='green', width=2)))
+
+    # 添加终点奖励点
+    fig.add_trace(go.Scatter(x=[151], y=[tt.item()], mode='markers', name='Terminal Reward',
+                             marker=dict(size=10, color='black', symbol='circle')))
+
+    # 设置图像样式
+    fig.update_layout(
+        title=dict(text='Estimated Q-values vs. Time Step k', x=0.5, font=dict(size=20, family='Times New Roman')),
+        xaxis=dict(
+            title='Time Step $k$',
+            titlefont=dict(size=18, family='Times New Roman'),
+            tickfont=dict(size=14, family='Times New Roman')
+        ),
+        yaxis=dict(
+            title='Q-value',
+            titlefont=dict(size=18, family='Times New Roman'),
+            tickfont=dict(size=14, family='Times New Roman')
+        ),
+        legend=dict(
+            x=0.02, y=0.98,
+            font=dict(size=14, family='Times New Roman'),
+            bordercolor='Black',
+            borderwidth=0.5
+        ),
+        margin=dict(l=60, r=20, t=60, b=60),
+        template='simple_white',
+        width=800,
+        height=500
+    )
+    fig.show()
+    fig.write_image("SimpleSpeed_150.pdf", scale=3)  # 高分辨率 PDF
+    fig.write_image("SimpleSpeed_150.png", scale=3)  # 高分辨率 PNG
+    
+
+
 ENABLE_DEBUG = True
 w5 = 10**0
 w6 = 10**1
 def TerminalReward(state,dp_final,vp_final):
     # get terminal reward
-    # state: [s,v,a,dp,k]
-    # action: [a]
-    # dp: [dp]
-    # vp: [vp]
-    # get terminal reward
-    
+    # convert to numpy if tensor
+    if isinstance(state, torch.Tensor): 
+        state = state.cpu().data.numpy()
     ht = 1.5
     dmin = 1
     if len(state.shape) == 1:
@@ -116,7 +184,29 @@ class SimpleSpeed():
 
         L = np.sum(np.array(L), axis=0)
         return L, Lbasis
+    
+    def taylor_approx_features(self, x, num_segments=3, max_order=4):
+        x = np.asarray(x)
+        segment_length = len(x) // num_segments
+        features = []
+        for i in range(num_segments):
+            start = i * segment_length
+            end = (i + 1) * segment_length if i < num_segments - 1 else len(x)
+            segment = x[start:end]
+            coeffs = []
+            current = segment.copy()
+            # 0阶函数值
+            coeffs.append(np.mean(current))
+            # 1~4阶导数：使用np.gradient递归近似
+            for order in range(1, max_order + 1):
+                current = np.gradient(current)
+                coeffs.append(np.mean(current))
 
+            features.extend(coeffs)
+
+        return np.array(features)
+    
+    
     #def updatePrecedingVehicle(self, SELECT_PREC_ID=None, DATA_FILTER=None, IS_INIT=False, T_BEG=None, T_HORIZON=None, INIT_STATE=None):
     def updatePrecedingVehicle(self, options={}):
         # parser options
@@ -451,7 +541,7 @@ class SimpleSpeed():
         # terminated = (self.dp[-1]-df>=self.df-dftol) & (self.dp[-1]-df<=self.df+dftol) & (v>=self.vf-vftol) & (v<=self.vf+vftol) & (k == self.N)
         # k = obs[:,2]
         
-        truncated = (self.k == self.N)
+        truncated = (self.k == self.N-1)
         terminated = truncated
         observationNext = self.calcDyn(self.observation, action, IS_OBS=True)
         
@@ -628,16 +718,22 @@ class SimpleSpeed():
                 dpDelta = -__dpFunc(obs,k)
                 dyn = torch.hstack([(d + self.dt*v),
                                     torch.clip(v+self.dt*a, self.vmin, self.vmax),
-                                    k])
-                for i in range(self.nIntvl):
-                    for j in range(self.nPoly+1):
-                        # if not last
-                        if j != self.nPoly:
-                            dyn = torch.hstack([dyn,
-                                        obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1))*(k+2)**(self.nPoly-j)/(k+1)**(self.nPoly-j)])
-                        else:
-                            dyn = torch.hstack([dyn,
-                                        obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1)) + obs[:,self.state_dim+i*(self.nPoly+1)+j-1].reshape((-1,1))*((k+2)/(k+1)-1)])
+                                    k,
+                                    obs[:,self.state_dim+1:]])
+                # for i in range(self.nIntvl):
+                #     for j in range(self.nPoly+1):
+                #         # if not last
+                #         if j != self.nPoly:
+                #             dyn = torch.hstack([dyn,
+                #                         obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1))*(k+2)**(self.nPoly-j)/(k+1)**(self.nPoly-j)])
+                #             # dyn = torch.hstack([dyn,
+                #                         # obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1))])
+                #         else:
+                #             dyn = torch.hstack([dyn,
+                #                         obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1)) + obs[:,self.state_dim+i*(self.nPoly+1)+j-1].reshape((-1,1))*((k+2)/(k+1)-1)])
+                #             # dyn = torch.hstack([dyn,
+                #                         # obs[:,self.state_dim+i*(self.nPoly+1)+j].reshape((-1,1))])
+
 
             elif self.SELECT_OBSERVATION == 'all':
                 dyn = xVar
@@ -646,3 +742,4 @@ class SimpleSpeed():
                 dyn[2] = k + 1 
                 dyn= dyn.reshape((-1,self.obs_dim))
         return dyn
+    

@@ -52,8 +52,8 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Nonlinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.OPT_METHODS = 'SAC2' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
@@ -183,21 +183,6 @@ os.system(cmd_line)
 from Env.SimpleSpeed import TerminalReward
 import OptMethods
 
-def generate_random_terminal(state, action, Env, ScalingDict):
-    '''
-    generate random terminal state and reward
-    return randomized state and reward
-    '''
-    nState = 2
-    x_mean = ScalingDict['xMean'][:nState]
-    x_std = ScalingDict['xStd'][:nState]
-    # random add noise to state
-    noise = np.random.normal(0, 1, size=state[:nState].shape)
-    state[:nState] =  x_mean + x_std * noise
-    dp_final = Env.dp[-1]
-    vp_final = Env.vp[-1]
-    return state[:nState], TerminalReward(state, dp_final, vp_final)
-
 def main():
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
@@ -213,7 +198,7 @@ def main():
             episode_reward = 0
             for t in count():
                 # concat dp and env.k
-                # dp[-1] = Env.k
+                dp[-1] = Env.k
                 # ref = np.concatenate((dp, vp), axis=-1) 
                 action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
@@ -221,13 +206,16 @@ def main():
                 done=terminated or truncated
                 state = next_state
                 episode_steps += 1
-                xN,rN = generate_random_terminal(state, action, Env, ScalingDict)
-                agent.replay_buffer.push((state, next_state, action, reward, float(done), xN, rN))    
+                 
                 if i % 10 == 0:  
                     for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
+                    dfk = dp[int(dp[-1])] -state[j]
+                    writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                    writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
+
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
@@ -239,13 +227,14 @@ def main():
                         writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
                         writer.add_scalar(f'Loss/Alpha', alpha, i)
                 if done:
-                    break
-            if SEP_BUFFER:      
-                Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-                q1_loss, q2_loss, q3_loss = Q_loss
-                writer.add_scalar(f'Loss/Q3', q3_loss, i)
-            # else:   
-            #     q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+                    xn = state
+                    rn = reward
+                else:
+                    agent.temp_buffer.push((state, next_state, action, reward, float(done)))   
+                    
+            for _ in range(len(agent.temp_buffer.storage)):
+                s, sn, a, r, d = agent.temp_buffer.pop()
+                agent.replay_buffer.push((s, sn, a, r, d, xn, rn))
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
             writer.add_scalar('Episode/Reward', episode_reward, i)
@@ -268,8 +257,7 @@ def main():
                             next_state, reward, terminated, truncated, _ = Env.step(action)
                             episode_reward += reward
                             done=terminated or truncated
-                            xN,rN = generate_random_terminal(next_state, action, Env, ScalingDict)
-                            EvalReplayBuffer.push((state, next_state, action, reward, float(done),xN, rN))
+                            EvalReplayBuffer.push((state, next_state, action, reward, float(done),dp))
                             state = next_state
                             if done:
                                 break

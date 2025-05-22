@@ -6,8 +6,11 @@ import torch.optim as optim
 from torch.distributions import Normal, Categorical
 import numpy as np
 from torch.optim import Adam
-from operator import itemgetter
 
+from operator import itemgetter
+import torch
+# import replay buffer
+# from .lib import ReplayBuffer
 class Replay_buffer():
     def __init__(self, max_size=10000):
         self.storage = []
@@ -20,14 +23,17 @@ class Replay_buffer():
             self.ptr = (self.ptr + 1) % self.max_size
         else:
             self.storage.append(data)
-
+            
+    def pop(self):
+        return self.storage.pop()
+    
     def sample(self, batch_size):
         # batch = random.sample(self.storage, batch_size)
         # x, y, u, r, d = map(np.stack, zip(*batch))
         ind = np.random.randint(0, len(self.storage), size=batch_size)
-        x, y, u, r, d,  rn = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
+        x, y, u, r, d, rn = map(np.stack, zip(*itemgetter(*ind)(self.storage)))
 
-        return x,y,u,r,d,rn
+        return x,y,u,r,d, rn
     
     def getEpisodeBatch(self, steps):
 
@@ -58,10 +64,11 @@ class Replay_buffer():
         reward_NBatch = np.array(batch[5])
 
         return (observationBatch, observationNextBatch, actionBatch, rewardBatch, doneBatch, reward_NBatch)
+
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
 EPSILON = 1e-6
-torch.autograd.set_detect_anomaly(False)
+# torch.autograd.set_detect_anomaly(True)
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
@@ -138,7 +145,7 @@ class DeterministicPolicy(nn.Module):
             self.action_bias = torch.FloatTensor(
                 (action_space.high + action_space.low) / 2.)
 
-    def forward(self, state):
+    def forward(self, state, N_minusk, rN):
         x = F.relu(self.linear1(state))
         x = F.relu(self.linear2(x))
         mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
@@ -207,8 +214,6 @@ class Q(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
-
-
 class SAC2:
     def __init__(self, state_dim, action_space, ScalingDict, device, args):
         self.gamma = args.gamma
@@ -218,9 +223,14 @@ class SAC2:
         self.state_dim = state_dim
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
-        self.automatic_entropy_tuning = args.automatic_entropy_tuning   
+        self.automatic_entropy_tuning = args.automatic_entropy_tuning
+            
+        self.temp_buffer = Replay_buffer()
+        self.rn_buffer = Replay_buffer()
         self.replay_buffer = Replay_buffer()
-
+        self.replay_buffer_list = [self.replay_buffer,self.rn_buffer,self.temp_buffer]
+        ''''''
+        
 
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
                             ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
@@ -229,16 +239,26 @@ class SAC2:
 
         self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)    
+        
+        self.Q_net_list = [self.Q_net1, self.Q_net2, self.Q_net3]
+        
         self.Q_target_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_target_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_target_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+
+        self.Q_target_net_list = [self.Q_target_net1, self.Q_target_net2, self.Q_target_net3]
 
         self.Q1_optimizer = Adam(self.Q_net1.parameters(), lr=args.learning_rate)
         self.Q2_optimizer = Adam(self.Q_net2.parameters(), lr=args.learning_rate)
-
-        for target_param, param in zip(self.Q_target_net1.parameters(), self.Q_net1.parameters()):
-            target_param.data.copy_(param.data)
-        for target_param, param in zip(self.Q_target_net2.parameters(), self.Q_net2.parameters()):
-            target_param.data.copy_(param.data)
+        self.Q3_optimizer = Adam(self.Q_net3.parameters(), lr=args.learning_rate)
+        
+        self.Q_optimizer = [self.Q1_optimizer, self.Q2_optimizer, self.Q3_optimizer]
+        
+        for target_Q_net, Q_net in zip(self.Q_target_net_list, self.Q_net_list):
+            for target_param, param in zip(target_Q_net.parameters(), Q_net.parameters()):
+                target_param.data.copy_(param.data)
+        
 
         self.policy_type = args.policy_type
         if self.policy_type == "Gaussian":
@@ -246,7 +266,6 @@ class SAC2:
                 self.target_entropy = -torch.prod(torch.Tensor(action_space.shape).to(self.device)).item()
                 self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
                 self.alpha_optim = Adam([self.log_alpha], lr=args.learning_rate)
-
             self.policy_net = GaussianPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
         else:
             self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
@@ -279,75 +298,78 @@ class SAC2:
             log_prob = dist.log_prob(x_t) - log_det
             return action, log_prob, mu, log_std, torch.tanh(mu)
 
+
+        
+        
+        
+        
+
+
     def update(self, batch_size, Info=None):
-        x, y, u, r, d, rN = self.replay_buffer.sample(batch_size)
-        state_batch = torch.FloatTensor(x).to(self.device)
-        action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
-        next_state_batch = torch.FloatTensor(y).to(self.device)
-        reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)
-        undone_batch = torch.FloatTensor(d).reshape(-1, 1).to(self.device)
-        done_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
-
-        with torch.no_grad():
-            next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-            q1_next = self.Q_target_net1(next_state_batch, next_action)
-            q2_next = self.Q_target_net2(next_state_batch, next_action)
-            # next_log_pi = next_log_pi.sum(dim=1, keepdim=True)
-            min_q_next = torch.min(q1_next, q2_next) - self.alpha * next_log_pi.reshape(-1, 1)
-            next_q_value  = reward_batch + done_batch * self.gamma * min_q_next
+        Q_loss_list = []
+        for i in range(len(self.Q_net_list)):
+            x, y, u, r, d, ref = self.replay_buffer_list[i].sample(batch_size)
+            state_batch = torch.FloatTensor(x).to(self.device)
+            action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
+            next_state_batch = torch.FloatTensor(y).to(self.device)
+            done_batch = torch.FloatTensor(d).reshape(-1, 1).to(self.device)    
+            undone_batch = torch.FloatTensor(1 - np.array(d)).reshape(-1, 1).to(self.device)
+            reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)  
+            with torch.no_grad():
+                next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
+                q_next = self.Q_net_list[i](next_state_batch, next_action)
+                if i==2:
+                    next_q_value = reward_batch + undone_batch*self.gamma* q_next
+                else:
+                    next_q_value = reward_batch + self.gamma* q_next
+            # align loss:
+            if i<2:
+                Qi_ = done_batch* self.Q_net_list[i](next_state_batch, next_action) # Q1(50)
+                Qi_next = done_batch*self.Q_net_list[i+1](next_state_batch, next_action) # Q2(50)
+                loss_align = F.mse_loss(Qi_, Qi_next)
+            else:
+                loss_align = 0
             
-
-        qf1 = self.Q_net1(state_batch, action_batch)
-        qf2 = self.Q_net2(state_batch, action_batch)
+                        
+            qf = self.Q_net_list[i](state_batch, action_batch)
+            q_loss = F.mse_loss(qf, next_q_value)
+            self.Q_optimizer[i].zero_grad()
+            (q_loss+loss_align).backward()
+            self.Q_optimizer[i].step()
+            Q_loss_list.append(q_loss.item())
+            pi, log_prob, _ = self.policy_net.sample(state_batch)
+            q_pi = self.Q_net_list[i](state_batch, pi)
+            q_target_pi = self.Q_target_net_list[i](state_batch, pi)
+            min_q_pi = torch.min(q_pi, q_target_pi)
+            policy_loss = (self.alpha * log_prob - min_q_pi).mean()
+            self.policy_optimizer.zero_grad()
+            policy_loss.backward()
+            self.policy_optimizer.step()
+            if self.automatic_entropy_tuning is True:
+                alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+                self.alpha_optim.zero_grad()
+                alpha_loss.backward()
+                self.alpha_optim.step()
+                self.alpha = self.log_alpha.exp()
+                
+        for target_Q_net, Q_net in zip(self.Q_target_net_list, self.Q_net_list):    
+            for target_param, param in zip(target_Q_net.parameters(), Q_net.parameters()):
+                target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
+            
+        return Q_loss_list,policy_loss.item(),alpha_loss.item(),self.alpha.item()
+            
         
-        q1_loss = F.mse_loss(qf1, next_q_value)
-        q2_loss = F.mse_loss(qf2, next_q_value)
-        
-        self.Q1_optimizer.zero_grad()
-        self.Q2_optimizer.zero_grad()
-        (q1_loss+q2_loss).backward()   
-        self.Q1_optimizer.step()
-        self.Q2_optimizer.step()
-        
-        pi, log_prob, _ = self.policy_net.sample(state_batch)
-        q1_pi   = self.Q_net1(state_batch, pi)
-        q2_pi   = self.Q_net2(state_batch, pi)
-
-        min_q_pi = torch.min(q1_pi, q2_pi)
-        policy_loss = (self.alpha * log_prob - min_q_pi).mean()
-        self.policy_optimizer.zero_grad()
-        policy_loss.backward()
-        self.policy_optimizer.step()
-
-        if self.automatic_entropy_tuning:
-            alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
-            self.alpha_optim.zero_grad()
-            alpha_loss.backward()
-            self.alpha_optim.step()
-            self.alpha = self.log_alpha.exp()
-
-        for target_param, param in zip(self.Q_target_net1.parameters(), self.Q_net1.parameters()):
-            target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
-        for target_param, param in zip(self.Q_target_net2.parameters(), self.Q_net2.parameters()):
-            target_param.data.copy_(target_param * (1 - self.tau) + param * self.tau)
-        return q1_loss.item(), q2_loss.item(), policy_loss.item(), alpha_loss.item(), self.alpha.item()
-    
-    
     def save(self, modelPath):
         import os
         torch.save(self.policy_net.state_dict(), os.path.join(modelPath, 'policy_net.pth'))
         torch.save(self.Q_net1.state_dict(), os.path.join(modelPath, 'Q_net1.pth'))
         torch.save(self.Q_net2.state_dict(), os.path.join(modelPath, 'Q_net2.pth'))
+        torch.save(self.Q_net3.state_dict(), os.path.join(modelPath, 'Q_net3.pth'))     
+        
         torch.save(self.Q_target_net1.state_dict(), os.path.join(modelPath, 'Q_target_net1.pth'))
         torch.save(self.Q_target_net2.state_dict(), os.path.join(modelPath, 'Q_target_net2.pth'))
-        #torch.save(self.critic_target.state_dict(), os.path.join(savePath, 'critic_target.pth'))
+        torch.save(self.Q_target_net3.state_dict(), os.path.join(modelPath, 'Q_target_net3.pth'))
+
         print("====================================")
         print("Model has been saved...")
         print("====================================")
-    def load(self, modelPath):
-        import os
-        self.policy_net.load_state_dict(torch.load(os.path.join(modelPath, 'policy_net.pth')))
-        self.Q_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net1.pth')))
-        self.Q_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_net2.pth')))
-        self.Q_target_net1.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net1.pth')))
-        self.Q_target_net2.load_state_dict(torch.load(os.path.join(modelPath, 'Q_target_net2.pth')))

@@ -52,12 +52,12 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'Linear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = False
 args.EnvOptions = {}
-SEP_BUFFER = False
+SEP_BUFFER = False if args.OPT_METHODS == 'SAC' else True
 
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
@@ -194,8 +194,7 @@ import OptMethods
 def main():
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
-    if args.load_path is not None:
-        agent.load(args.load_path)
+
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     total_numsteps = 0
@@ -206,24 +205,21 @@ def main():
             vp = Env.vp
             episode_reward = 0
             for t in count():
-                # concat dp and env.k
-                # dp[-1] = Env.k
                 # ref = np.concatenate((dp, vp), axis=-1) 
                 action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
                 if SEP_BUFFER:
-                    if Env.k<51:
-                        done1 = (Env.k==50)
+                    if Env.k< int(Env.N/3):
+                        done1 = (Env.k==int(Env.N/3))
                         agent.replay_buffer.push((state, next_state, action, reward, float(done1),dp))
-                    elif 51 <=Env.k < 101 :
-                        done2 = (Env.k==100)
+                    elif  int(Env.N/3) <=Env.k < int(Env.N/3*2) :
+                        done2 = (Env.k==int(Env.N/3*2))
                         agent.replay_buffer2.push((state, next_state, action, reward, float(done2),dp))
                     else:
                         agent.replay_buffer3.push((state, next_state, action, reward, float(done),dp))
                 else:   
-                    
                     agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
                     
                 state = next_state
@@ -233,16 +229,21 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
-                    # dfk = dp[int(dp[-1])] -state[j]
-                    # writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
-                    # writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
+                    if args.ENV_NAME == 'SimpleSpeed'   :
+                        dfk = dp[Env.k]-state[j]
+                        writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                        writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
                 
-
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
                         Info['iUpdate'] = iUp
-                        q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
+                        if SEP_BUFFER:      
+                            Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+                            q1_loss, q2_loss, q3_loss = Q_loss
+                            writer.add_scalar(f'Loss/Q3', q3_loss, i)
+                        else:
+                            q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
                         writer.add_scalar(f'Loss/Q1', q1_loss, i)
                         writer.add_scalar(f'Loss/Q2', q2_loss, i)
                         writer.add_scalar(f'Loss/Policy', policy_loss, i)
@@ -250,15 +251,7 @@ def main():
                         writer.add_scalar(f'Loss/Alpha', alpha, i)
                 if done:
                     break
-            if SEP_BUFFER:      
-                Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-                q1_loss, q2_loss, q3_loss = Q_loss
-                writer.add_scalar(f'Loss/Q3', q3_loss, i)
-            # else:   
-            #     q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
             
-
- 
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
             writer.add_scalar('Episode/Reward', episode_reward, i)
