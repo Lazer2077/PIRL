@@ -53,7 +53,7 @@ torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
 args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Linear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.ENV_NAME = 'NonLinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
@@ -212,10 +212,9 @@ def main():
                 done=terminated or truncated
                 if Multi_buffer:
                     # separate buffer based on number of Q-networks
-                    if done:
+                    buffer_id = Env.k//(Env.N//agent.num_Q)
+                    if buffer_id == agent.num_Q:
                         buffer_id = agent.num_Q - 1
-                    else:
-                        buffer_id = Env.k//(Env.N//agent.num_Q)
                     agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
                 else:   
                     agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
@@ -284,6 +283,7 @@ def main():
                                 writer.add_scalar(f'Test/Ep_{i}/dp', dp[Env.k-1], t)
                             avg_reward += episode_reward
                     avg_reward /= episodes
+                    writer.add_scalar(f'Episode/Test/Reward', avg_reward, i)
                     iStepEvaluation += 1
                     print("----------------------------------------")
                     print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))

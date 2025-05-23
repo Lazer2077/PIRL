@@ -224,8 +224,7 @@ class SAC3:
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning
-        self.N = 150
-        self.num_Q = 4
+        self.num_Q = 3
         self.replay_buffer_list = []    
         for i in range(self.num_Q):
             self.replay_buffer_list.append(Replay_buffer())
@@ -259,7 +258,7 @@ class SAC3:
             self.policy_net = DeterministicPolicy(state_dim, action_space.shape[0], args.hidden_size, action_space).to(self.device)
         self.policy_optimizer = Adam(self.policy_net.parameters(), lr=args.learning_rate)
 
-    def select_action(self, state, evaluate=False,ref=None):
+    def select_action(self, state, evaluate=False, ref=None):
         state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
         if evaluate is False:
             action, _, _ = self.policy_net.sample(state)
