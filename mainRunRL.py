@@ -252,12 +252,12 @@ def main():
             
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
-            writer.add_scalar('Episode/Reward', episode_reward, i)
+            writer.add_scalar('Episode/Train/Reward', episode_reward, i)
             if (i % args.eval_interval == 0):
                 agent.save(savePath)
                 if (args.ENABLE_VALIDATION) :
                     avg_reward = 0.
-                    episodes = 10
+                    episodes = 5
                     for _  in range(episodes):
                         state, _ = Env.reset()
                         episode_reward = 0
@@ -265,7 +265,6 @@ def main():
                         dp = Env.dp
                         vp = Env.vp
                         for t in count():
-                            dp[-1] = Env.k
                             action = agent.select_action(state, ref=dp, evaluate=True)
                             next_state, reward, terminated, truncated, _ = Env.step(action)
                             episode_reward += reward
@@ -275,15 +274,16 @@ def main():
                                 break
                             # write to tensorboard
                             for j in range(min(state_dim, 2)):
-                                writer.add_scalar(f'Test/Episode_{i}/State{j}', state[j], t)
+                                writer.add_scalar(f'Test/Ep_{i}/State{j}', state[j], t)
                             for j in range(min(action_dim, 1)):
-                                writer.add_scalar(f'Test/Episode_{i}/Action{j}', action[j], t)    
-                            writer.add_scalar(f'Test/Episode_{i}/Reward', episode_reward, t)
+                                writer.add_scalar(f'Test/Ep_{i}/Action{j}', action[j], t)    
+                            writer.add_scalar(f'Test/Ep_{i}/Reward', episode_reward, t)
                             if args.ENV_NAME == 'SimpleSpeed':
                                 dfk = dp[Env.k]-state[j]
-                                writer.add_scalar(f'Test/Episode_{i}/CarFollowing', dfk, t)
-                                writer.add_scalar(f'Test/Episode_{i}/dp', dp[Env.k-1], t)
-                                
+                                writer.add_scalar(f'Test/Ep_{i}/CarFollowing', dfk, t)
+                                writer.add_scalar(f'Test/Ep_{i}/dp', dp[Env.k-1], t)
+                            avg_reward += episode_reward
+                    avg_reward /= episodes
                     iStepEvaluation += 1
                     print("----------------------------------------")
                     print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
