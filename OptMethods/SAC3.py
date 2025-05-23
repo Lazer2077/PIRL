@@ -237,23 +237,15 @@ class SAC3:
         xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),
                            ScalingDict.get('uStd', torch.ones(self.action_dim)).to(device)])
 
-        self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)    
+        self.num_Q = 4
+        self.Q_net_list = []
+        for i in range(self.num_Q):
+            self.Q_net_list.append(Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device))
+            self.Q_target_net_list.append(Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device))
         
-        self.Q_net_list = [self.Q_net1, self.Q_net2, self.Q_net3]
-        
-        self.Q_target_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_target_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_target_net3 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-
-        self.Q_target_net_list = [self.Q_target_net1, self.Q_target_net2, self.Q_target_net3]
-
-        self.Q1_optimizer = Adam(self.Q_net1.parameters(), lr=args.learning_rate)
-        self.Q2_optimizer = Adam(self.Q_net2.parameters(), lr=args.learning_rate)
-        self.Q3_optimizer = Adam(self.Q_net3.parameters(), lr=args.learning_rate)
-        
-        self.Q_optimizer = [self.Q1_optimizer, self.Q2_optimizer, self.Q3_optimizer]
+        self.Q_optimizer = []
+        for i in range(self.num_Q):
+            self.Q_optimizer.append(Adam(self.Q_net_list[i].parameters(), lr=args.learning_rate))
         
         for target_Q_net, Q_net in zip(self.Q_target_net_list, self.Q_net_list):
             for target_param, param in zip(target_Q_net.parameters(), Q_net.parameters()):
