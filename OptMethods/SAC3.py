@@ -225,33 +225,29 @@ class SAC3:
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning
         self.N = 150
-        self.replay_buffer = Replay_buffer()
-        self.replay_buffer2 = Replay_buffer()
-        self.replay_buffer3 = Replay_buffer()
-        # '''
-        self.replay_buffer_list = [self.replay_buffer,self.replay_buffer2,self.replay_buffer3]
+        self.num_Q = 4
+        self.replay_buffer_list = []    
+        for i in range(self.num_Q):
+            self.replay_buffer_list.append(Replay_buffer())
+        self.replay_buffer = self.replay_buffer_list[0]
         
-
         xumean = torch.cat([ScalingDict.get('xMean', torch.zeros(state_dim)).to(device),
                             ScalingDict.get('uMean', torch.zeros(self.action_dim)).to(device)])
         xustd = torch.cat([ScalingDict.get('xStd', torch.ones(state_dim)).to(device),
                            ScalingDict.get('uStd', torch.ones(self.action_dim)).to(device)])
 
-        self.num_Q = 4
         self.Q_net_list = []
+        self.Q_target_net_list = []
+        self.Q_optimizer = []
         for i in range(self.num_Q):
             self.Q_net_list.append(Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device))
             self.Q_target_net_list.append(Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device))
-        
-        self.Q_optimizer = []
         for i in range(self.num_Q):
             self.Q_optimizer.append(Adam(self.Q_net_list[i].parameters(), lr=args.learning_rate))
         
         for target_Q_net, Q_net in zip(self.Q_target_net_list, self.Q_net_list):
             for target_param, param in zip(target_Q_net.parameters(), Q_net.parameters()):
                 target_param.data.copy_(param.data)
-        
-
         self.policy_type = args.policy_type
         if self.policy_type == "Gaussian":
             if self.automatic_entropy_tuning is True:
@@ -292,7 +288,7 @@ class SAC3:
         
     def update(self, batch_size, Info=None):
         Q_loss_list = []
-        for i in range(len(self.Q_net_list)):
+        for i in range(self.num_Q):
             x, y, u, r, d, ref = self.replay_buffer_list[i].sample(batch_size)
             state_batch = torch.FloatTensor(x).to(self.device)
             action_batch = torch.LongTensor(u).to(self.device) if self.is_discrete else torch.FloatTensor(u).to(self.device).reshape(-1, self.action_dim)
@@ -347,13 +343,9 @@ class SAC3:
     def save(self, modelPath):
         import os
         torch.save(self.policy_net.state_dict(), os.path.join(modelPath, 'policy_net.pth'))
-        torch.save(self.Q_net1.state_dict(), os.path.join(modelPath, 'Q_net1.pth'))
-        torch.save(self.Q_net2.state_dict(), os.path.join(modelPath, 'Q_net2.pth'))
-        torch.save(self.Q_net3.state_dict(), os.path.join(modelPath, 'Q_net3.pth'))     
-        
-        torch.save(self.Q_target_net1.state_dict(), os.path.join(modelPath, 'Q_target_net1.pth'))
-        torch.save(self.Q_target_net2.state_dict(), os.path.join(modelPath, 'Q_target_net2.pth'))
-        torch.save(self.Q_target_net3.state_dict(), os.path.join(modelPath, 'Q_target_net3.pth'))
+        for i in range(self.num_Q):
+            torch.save(self.Q_net_list[i].state_dict(), os.path.join(modelPath, f'Q_net_{i}.pth'))
+            torch.save(self.Q_target_net_list[i].state_dict(), os.path.join(modelPath, f'Q_target_net_{i}.pth'))
 
         print("====================================")
         print("Model has been saved...")

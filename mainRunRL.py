@@ -55,9 +55,9 @@ np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'Linear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
-args.ENABLE_VALIDATION = False
+args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
-SEP_BUFFER = False if args.OPT_METHODS == 'SAC' else True
+Multi_buffer = False if args.OPT_METHODS == 'SAC' else True
 
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
@@ -127,8 +127,8 @@ else:
 
 
 MODEL_NAME = f'{args.OPT_METHODS}_{args.SELECT_OBSERVATION}_{args.ENV_NAME}'
-
-delete_command = 'python delete.py'
+cur_path = os.path.dirname(os.path.abspath(__file__))
+delete_command = f'python {cur_path}/delete.py'
 os.system(delete_command)
 
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
@@ -210,15 +210,13 @@ def main():
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
-                if SEP_BUFFER:
-                    if Env.k< int(Env.N/3):
-                        done1 = (Env.k==int(Env.N/3))
-                        agent.replay_buffer.push((state, next_state, action, reward, float(done1),dp))
-                    elif  int(Env.N/3) <=Env.k < int(Env.N/3*2) :
-                        done2 = (Env.k==int(Env.N/3*2))
-                        agent.replay_buffer2.push((state, next_state, action, reward, float(done2),dp))
+                if Multi_buffer:
+                    # separate buffer based on number of Q-networks
+                    if done:
+                        buffer_id = agent.num_Q - 1
                     else:
-                        agent.replay_buffer3.push((state, next_state, action, reward, float(done),dp))
+                        buffer_id = Env.k//(Env.N//agent.num_Q)
+                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
                 else:   
                     agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
                     
@@ -238,14 +236,14 @@ def main():
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
                         Info['iUpdate'] = iUp
-                        if SEP_BUFFER:      
+                        if Multi_buffer:      
                             Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-                            q1_loss, q2_loss, q3_loss = Q_loss
-                            writer.add_scalar(f'Loss/Q3', q3_loss, i)
+                            for k in range(agent.num_Q):
+                                writer.add_scalar(f'Loss/Q{k+1}', Q_loss[k], i)
                         else:
                             q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
-                        writer.add_scalar(f'Loss/Q1', q1_loss, i)
-                        writer.add_scalar(f'Loss/Q2', q2_loss, i)
+                            writer.add_scalar(f'Loss/Q1', q1_loss, i)
+                            writer.add_scalar(f'Loss/Q2', q2_loss, i)
                         writer.add_scalar(f'Loss/Policy', policy_loss, i)
                         writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
                         writer.add_scalar(f'Loss/Alpha', alpha, i)
@@ -258,7 +256,6 @@ def main():
             if (i % args.eval_interval == 0):
                 agent.save(savePath)
                 if (args.ENABLE_VALIDATION) :
-                    EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
                     avg_reward = 0.
                     episodes = 10
                     for _  in range(episodes):
@@ -269,21 +266,25 @@ def main():
                         vp = Env.vp
                         for t in count():
                             dp[-1] = Env.k
-                            # ref = np.concatenate((dp, vp), axis=-1)
-                            action = agent.select_action(state, ref=dp)
+                            action = agent.select_action(state, ref=dp, evaluate=True)
                             next_state, reward, terminated, truncated, _ = Env.step(action)
                             episode_reward += reward
                             done=terminated or truncated
-                            EvalReplayBuffer.push((state, next_state, action, reward, float(done),dp))
                             state = next_state
                             if done:
                                 break
-                        avg_reward += episode_reward
-                        #plotResults(agent, i, t)
-                    avg_reward /= episodes
-                    
+                            # write to tensorboard
+                            for j in range(min(state_dim, 2)):
+                                writer.add_scalar(f'Test/Episode_{i}/State{j}', state[j], t)
+                            for j in range(min(action_dim, 1)):
+                                writer.add_scalar(f'Test/Episode_{i}/Action{j}', action[j], t)    
+                            writer.add_scalar(f'Test/Episode_{i}/Reward', episode_reward, t)
+                            if args.ENV_NAME == 'SimpleSpeed':
+                                dfk = dp[Env.k]-state[j]
+                                writer.add_scalar(f'Test/Episode_{i}/CarFollowing', dfk, t)
+                                writer.add_scalar(f'Test/Episode_{i}/dp', dp[Env.k-1], t)
+                                
                     iStepEvaluation += 1
-                    writer.add_scalar('Test/Reward', avg_reward, i)
                     print("----------------------------------------")
                     print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
                     print("----------------------------------------")
