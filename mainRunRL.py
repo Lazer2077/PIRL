@@ -39,7 +39,7 @@ parser.add_argument('--automatic_entropy_tuning', type=bool, default=True, metav
 parser.add_argument('--eval_interval', type=int, default=20,
                     help='Evaluates a policy a policy every X episode (default: 10)')
 parser.add_argument('--start_steps', type=int, default=10000, metavar='N',
-                    help='Steps sampling random actions (default: 10000)')
+                    help='Steps sampling rand cv om actions (default: 10000)')
 args = parser.parse_args()
 # create a folder to save model and training log
 if args.seed:

@@ -224,7 +224,7 @@ class SAC3:
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning
-        self.num_Q = 3
+        self.num_Q = 2
         self.replay_buffer_list = []    
         for i in range(self.num_Q):
             self.replay_buffer_list.append(Replay_buffer())
