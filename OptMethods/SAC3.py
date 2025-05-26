@@ -224,7 +224,7 @@ class SAC3:
         self.action_dim = action_space.shape[0]
         self.is_discrete = args.is_discrete
         self.automatic_entropy_tuning = args.automatic_entropy_tuning
-        self.num_Q = 2
+        self.num_Q = 3
         self.replay_buffer_list = []    
         for i in range(self.num_Q):
             self.replay_buffer_list.append(Replay_buffer())
@@ -297,20 +297,12 @@ class SAC3:
             reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)  
             with torch.no_grad():
                 next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-                # next_state_batch1 = next_state_batch.clone()
-                # next_state_batch2 = next_state_batch.clone()
-                # next_state_batch1[:,2] = int(self.N/3)
-                # next_state_batch2[:,2] = int(self.N*2/3)
-                # if i == 0:
-                #     q_next = self.Q_net_list[i](next_state_batch, next_action)
-                # elif i == 1:
-                #     q_next = self.Q_net_list[i](next_state_batch, next_action)
-                # else:
-                #     q_next = self.Q_net_list[i](next_state_batch, next_action) 
-                q_next = self.Q_net_list[i](next_state_batch, next_action) 
-                next_q_value = reward_batch + done_batch*self.gamma* q_next
-            # align loss:
-       
+                if i == self.num_Q-1:
+                    q_next = self.Q_net_list[i](next_state_batch, next_action)
+                else:
+                    q_next = self.Q_net_list[i+1](next_state_batch, next_action) 
+                next_q_value = (reward_batch + done_batch* self.gamma* q_next)
+                
             qf = self.Q_net_list[i](state_batch, action_batch)
             q_loss = F.mse_loss(qf, next_q_value)
             self.Q_optimizer[i].zero_grad()

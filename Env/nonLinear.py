@@ -1,25 +1,19 @@
 import torch
 import numpy as np
-def plot_value(self, state_batch, action_batch):
+def plot_value(self):
     import plotly.graph_objects as go
-    import numpy as np  
-    import torch
-    N = 60
+    N = 6
     Num_Q = 2
     Qf = torch.tensor([[700.0, 0.0], [0.0, 700.0]]).to(self.device)
     aa = torch.tensor([0.5, -0.5, 0.0]).to(self.device)
     bb = torch.tensor([0.2, 0.3]).to(self.device)
-    # initialize V based on Num_Q
     V = [[] for _ in range(Num_Q)]
-    # 扫描 k 并记录 Q 值
-    for i in range(N+1):
-        aa[2] = i
+    for k in range(N+1):
+        aa[2] = k
         for j in range(Num_Q):  
             vv = self.Q_net_list[j](aa, bb)
             V[j].append(-vv.item())
-    # 计算终端 reward 值
     tt = 0.5 * aa[:2].T @ Qf @ aa[:2]
-    # 创建图形
     fig = go.Figure()
     for j in range(Num_Q):
         fig.add_trace(go.Scatter(y=V[j], mode='lines', name=f'Q{j+1}', line=dict(width=2)))
@@ -28,7 +22,6 @@ def plot_value(self, state_batch, action_batch):
         x=[N], y=[tt.item()], mode='markers', name='Terminal reward',
         marker=dict(size=10, color='black', symbol='circle')
     ))
-    # 更新布局
     fig.update_layout(
         title=dict(
             text='Estimated Q-values vs. Time Step k',
@@ -42,10 +35,9 @@ def plot_value(self, state_batch, action_batch):
         template='plotly_white',
         margin=dict(l=50, r=20, t=50, b=50)
     )
-
     fig.show()
     fig.write_html(f"NonLinear_Q{Num_Q}_{N}.html")
-    fig.write_image(f"NonLinear_Q{Num_Q}_{N}.svg", scale=3)  # SVG 输出，适合论文矢量图
+    fig.write_image(f"NonLinear_Q{Num_Q}_{N}.svg", scale=3)
     return 
 
 class NonLinear:
@@ -58,13 +50,13 @@ class NonLinear:
         self.u_dim = 2
         self.umin = np.array([-3,-3])
         self.umax = np.array([3,3])
-        self.N = 60
+        self.N = 6
         self.k = 0
         self.IS_K = True
         if self.IS_K:
             self.x_dim = 2+1
             self.xmean = np.array([0.0, 0.0, 0.0])
-            self.xstd = np.array([1.0, 1.0, self.N])
+            self.xstd = np.array([1.0, 1.0, self.N-1])
         else:
             self.x_dim = 2
             self.xmean = np.array([0.0, 0.0])

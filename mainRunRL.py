@@ -52,13 +52,12 @@ random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC3' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
 args.ENV_NAME = 'NonLinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 Multi_buffer = False if args.OPT_METHODS == 'SAC' else True
-
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
     args.dynamic_noise = False
@@ -213,11 +212,14 @@ def main():
                 if Multi_buffer:
                     # separate buffer based on number of Q-networks
                     buffer_id = Env.k//(Env.N//agent.num_Q)
+                    end_done = (Env.k % (Env.N//agent.num_Q) == 0)
                     if buffer_id == agent.num_Q:
                         buffer_id = agent.num_Q - 1
-                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
+                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(end_done),dp))
                 else:   
+       
                     agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+
                     
                 state = next_state
                 episode_steps += 1
