@@ -2,24 +2,34 @@ import torch
 import numpy as np
 def plot_value(self):
     import plotly.graph_objects as go
-    N = 6
+    N = 150
     Num_Q = 2
     Qf = torch.tensor([[700.0, 0.0], [0.0, 700.0]]).to(self.device)
-    aa = torch.tensor([0.5, -0.5, 0.0]).to(self.device)
-    bb = torch.tensor([0.2, 0.3]).to(self.device)
+    xx = torch.tensor([2.0, 0.0, 0.0]).to(self.device)
+    uu = torch.tensor([0.0, 0.0]).to(self.device)
+    Q = torch.tensor([[10.0,0.0],[0.0,10.0]]).to(self.device)
+    R = torch.tensor([[10.0,0.0],[0.0,10.0]]).to(self.device)
+    
+    x_next = torch.zeros(2).to(self.device)
+    g = torch.tensor([[-0.2,0.0],[0.0,-0.2]]).to(self.device)    
+    x_next[0] = 0.2*xx[0] * torch.exp(xx[1]**2) + g[0,0]*uu[0]
+    x_next[1] = 0.3*xx[1]**3 + g[1,1]*uu[1]
+    # step cost: 6.3
     V = [[] for _ in range(Num_Q)]
-    for k in range(N+1):
-        aa[2] = k
+    for k in range(N-1):
+        xx[2] = k
         for j in range(Num_Q):  
-            vv = self.Q_net_list[j](aa, bb)
+            vv = self.Q_net_list[j](xx, uu)
             V[j].append(-vv.item())
-    tt = 0.5 * aa[:2].T @ Qf @ aa[:2]
+    tt = 0.5 * x_next[:2].T @ Qf @ x_next[:2]
+    tt = tt + 0.5* xx[:2].T @Q @ xx[:2] + uu.T @R@ uu
+    
     fig = go.Figure()
     for j in range(Num_Q):
         fig.add_trace(go.Scatter(y=V[j], mode='lines', name=f'Q{j+1}', line=dict(width=2)))
 
     fig.add_trace(go.Scatter(
-        x=[N], y=[tt.item()], mode='markers', name='Terminal reward',
+        x=[N-2], y=[tt.item()], mode='markers', name='Terminal reward',
         marker=dict(size=10, color='black', symbol='circle')
     ))
     fig.update_layout(
@@ -50,7 +60,7 @@ class NonLinear:
         self.u_dim = 2
         self.umin = np.array([-3,-3])
         self.umax = np.array([3,3])
-        self.N = 6
+        self.N = 150
         self.k = 0
         self.IS_K = True
         if self.IS_K:
@@ -61,7 +71,6 @@ class NonLinear:
             self.x_dim = 2
             self.xmean = np.array([0.0, 0.0])
             self.xstd = np.array([1.0, 1.0])
-            
         self.dp = None
         self.vp = None
         

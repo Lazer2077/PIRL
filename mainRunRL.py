@@ -210,17 +210,18 @@ def main():
                 episode_reward += reward
                 done=terminated or truncated
                 if Multi_buffer:
-                    # separate buffer based on number of Q-networks
                     buffer_id = Env.k//(Env.N//agent.num_Q)
                     end_done = (Env.k % (Env.N//agent.num_Q) == 0)
                     if buffer_id == agent.num_Q:
                         buffer_id = agent.num_Q - 1
-                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(end_done),dp))
+                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
                 else:   
-       
-                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    # if done:
+                    #     for p in range(Env.N):
+                    #         agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    # else:
+                        agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
 
-                    
                 state = next_state
                 episode_steps += 1
                 if i % 10 == 0:  
@@ -228,7 +229,7 @@ def main():
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
-                    if args.ENV_NAME == 'SimpleSpeed'   :
+                    if args.ENV_NAME == 'SimpleSpeed':
                         dfk = dp[Env.k]-state[j]
                         writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
                         writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)

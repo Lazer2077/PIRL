@@ -179,10 +179,11 @@ class SAC:
 
         self.Q_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
+        self.Q_net_list = [self.Q_net1, self.Q_net2]
         self.Q_target_net1 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
         self.Q_target_net2 = Q(state_dim, self.action_dim, xumean, xustd, args.num_hidden_units_per_layer, self.is_discrete).to(device)
-        self.Q_net_list = [self.Q_net1, self.Q_net2]
         self.Q_target_net_list = [self.Q_target_net1, self.Q_target_net2]
+
         self.Q1_optimizer = Adam(self.Q_net1.parameters(), lr=args.learning_rate)
         self.Q2_optimizer = Adam(self.Q_net2.parameters(), lr=args.learning_rate)
 

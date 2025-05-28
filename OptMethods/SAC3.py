@@ -297,11 +297,8 @@ class SAC3:
             reward_batch = torch.FloatTensor(r).reshape(-1, 1).to(self.device)  
             with torch.no_grad():
                 next_action, next_log_pi, _= self.policy_net.sample(next_state_batch)
-                if i == self.num_Q-1:
-                    q_next = self.Q_net_list[i](next_state_batch, next_action)
-                else:
-                    q_next = self.Q_net_list[i+1](next_state_batch, next_action) 
-                next_q_value = (reward_batch + done_batch* self.gamma* q_next)
+                q_next = self.Q_net_list[i](next_state_batch, next_action) - self.alpha * next_log_pi.reshape(-1, 1)
+                next_q_value = (reward_batch + undone_batch* self.gamma* q_next)
                 
             qf = self.Q_net_list[i](state_batch, action_batch)
             q_loss = F.mse_loss(qf, next_q_value)
