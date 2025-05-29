@@ -6,7 +6,6 @@ import gymnasium as gym
 from datetime import datetime
 import os, sys, random
 from copy import deepcopy
-import time
 from torch.utils.tensorboard import SummaryWriter
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 parser = argparse.ArgumentParser()
@@ -47,17 +46,17 @@ if args.seed:
 else:
     selectRandomSeed = torch.seed()
 
-# env.seed(args.random_seed)
+# env.seed(args.random_seed)    
 random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
-args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'NonLinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.OPT_METHODS = 'SAC2' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
+args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
-Multi_buffer = False if args.OPT_METHODS == 'SAC' else True
+Multi_buffer = False
 if 'ddpg' in args.OPT_METHODS.lower():
     args.exploration_noise = 0.5
     args.dynamic_noise = False
@@ -127,8 +126,8 @@ else:
 
 MODEL_NAME = f'{args.OPT_METHODS}_{args.SELECT_OBSERVATION}_{args.ENV_NAME}'
 cur_path = os.path.dirname(os.path.abspath(__file__))
-delete_command = f'python {cur_path}/delete.py'
-os.system(delete_command)
+# delete_command = f'python {cur_path}/delete.py'
+# os.system(delete_command)
 
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
@@ -201,7 +200,6 @@ def main():
             episode_steps = 0
             state, _ = Env.reset()
             dp = Env.dp
-            vp = Env.vp
             episode_reward = 0
             for t in count():
                 # ref = np.concatenate((dp, vp), axis=-1) 
@@ -211,16 +209,11 @@ def main():
                 done=terminated or truncated
                 if Multi_buffer:
                     buffer_id = Env.k//(Env.N//agent.num_Q)
-                    end_done = (Env.k % (Env.N//agent.num_Q) == 0)
                     if buffer_id == agent.num_Q:
                         buffer_id = agent.num_Q - 1
                     agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
                 else:   
-                    # if done:
-                    #     for p in range(Env.N):
-                    #         agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
-                    # else:
-                        agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
 
                 state = next_state
                 episode_steps += 1
@@ -280,11 +273,32 @@ def main():
                             for j in range(min(action_dim, 1)):
                                 writer.add_scalar(f'Test/Ep_{i}/Action{j}', action[j], t)    
                             writer.add_scalar(f'Test/Ep_{i}/Reward', episode_reward, t)
+                            
                             if args.ENV_NAME == 'SimpleSpeed':
                                 dfk = dp[Env.k]-state[j]
                                 writer.add_scalar(f'Test/Ep_{i}/CarFollowing', dfk, t)
                                 writer.add_scalar(f'Test/Ep_{i}/dp', dp[Env.k-1], t)
+                                
                             avg_reward += episode_reward
+                        try:
+                            ref = agent.get_ref(state)
+                            ref = ref.detach().cpu().numpy().squeeze()
+                            import matplotlib.pyplot as plt
+                            plt.figure(figsize=(10, 5))
+                            plt.plot(ref, label='predicted dp')
+                            plt.plot(dp, label='True dp')
+                            plt.legend()
+                            plt.savefig(os.path.join(savePath, f'ep{i}_ref.png'))
+                            plt.close()
+                            print(f'ep{i}_ref.png saved')   
+                        except:
+                            pass
+                        
+                        
+                        
+                        
+                        
+                        
                     avg_reward /= episodes
                     writer.add_scalar(f'Episode/Test/Reward', avg_reward, i)
                     iStepEvaluation += 1

@@ -5,7 +5,7 @@ def plot_value(self):
     N = 150
     Num_Q = 2
     Qf = torch.tensor([[700.0, 0.0], [0.0, 700.0]]).to(self.device)
-    xx = torch.tensor([2.0, 0.0, 0.0]).to(self.device)
+    xx = torch.tensor([0.0, 0.0, 0.0]).to(self.device)
     uu = torch.tensor([0.0, 0.0]).to(self.device)
     Q = torch.tensor([[10.0,0.0],[0.0,10.0]]).to(self.device)
     R = torch.tensor([[10.0,0.0],[0.0,10.0]]).to(self.device)

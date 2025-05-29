@@ -5,10 +5,9 @@ import os
 import random
 import torch
 import h5py
+import plotly.graph_objects as go
 
-
-def plot_Q(self, next_state_batch, next_action, ref):
-    import plotly.graph_objects as go
+def plot_Q(self):
     from Env.SimpleSpeed import TerminalReward
     import numpy as np
     import torch
@@ -17,18 +16,17 @@ def plot_Q(self, next_state_batch, next_action, ref):
                        1.7871e+00,  1.0851e-01,  1.1398e-04, -3.0499e-02,  2.7067e+00,
                       -1.1804e+01, -1.3323e-18,  0.0000e+00, -2.2737e-14,  6.5178e+01]).to(self.device).reshape((1,-1))
     bb = torch.tensor(0.7594).reshape((1,-1)).to(self.device)
-
-    V1, V2, V3 = [], [], []
+    N = 150
+    V1, V2= [], []
 
     # 计算 Q 值曲线
-    for i in range(151):
-        aa[:,2] = i  # 修改目标变量
+    for i in range(N-1):
+        aa[:,2] = i  
         vv1 = self.Q_target_net1(aa, bb)
         vv2 = self.Q_target_net2(aa, bb)
-        vv3 = self.Q_target_net3(aa, bb)
         V1.append(-vv1.item())
         V2.append(-vv2.item())
-        V3.append(-vv3.item())
+
 
     # 终端奖励
     dp = ref[0]
@@ -41,7 +39,6 @@ def plot_Q(self, next_state_batch, next_action, ref):
     # 添加Q曲线
     fig.add_trace(go.Scatter(y=V1, mode='lines', name='Q₁', line=dict(color='royalblue', width=2)))
     fig.add_trace(go.Scatter(y=V2, mode='lines', name='Q₂', line=dict(color='darkorange', width=2)))
-    fig.add_trace(go.Scatter(y=V3, mode='lines', name='Q₃', line=dict(color='green', width=2)))
 
     # 添加终点奖励点
     fig.add_trace(go.Scatter(x=[151], y=[tt.item()], mode='markers', name='Terminal Reward',
@@ -72,8 +69,7 @@ def plot_Q(self, next_state_batch, next_action, ref):
         height=500
     )
     fig.show()
-    fig.write_image("SimpleSpeed_150.pdf", scale=3)  # 高分辨率 PDF
-    fig.write_image("SimpleSpeed_150.png", scale=3)  # 高分辨率 PNG
+    fig.write_image("SimpleSpeed_{N}.svg", scale=3)  # 高分辨率 PNG
     
 
 
@@ -185,7 +181,7 @@ class SimpleSpeed():
         L = np.sum(np.array(L), axis=0)
         return L, Lbasis
     
-    def taylor_approx_features(self, x, num_segments=3, max_order=4):
+    def tylor_approx_features(self, x, num_segments=3, max_order=4):
         x = np.asarray(x)
         segment_length = len(x) // num_segments
         features = []
@@ -442,8 +438,10 @@ class SimpleSpeed():
             self.xstd = torch.FloatTensor([10., 5., 30])   
             
         elif self.SELECT_OBSERVATION == 'poly':
-            self.xmean = torch.FloatTensor([50., 5., 50., -1, 1, 40, 40, 4, -14, 122, 122, -9, 17, 171, 176])
-            self.xstd = torch.FloatTensor([10., 5., 30., 25, 32, 25, 25, 30, 75, 65, 52, 148, 434, 421, 297])
+            # self.xmean = torch.FloatTensor([50., 10., 0.,   -1, 1, 40, 40, 4, -14, 122, 122, -9, 17, 171, 176])
+            # self.xstd = torch.FloatTensor([100., 10., 150., 25, 32, 25, 25, 30, 75, 65, 52, 148, 434, 421, 297])
+            self.xmean = torch.FloatTensor([50., 10., 0.,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            self.xstd = torch.FloatTensor([100., 10., 150., 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
             self.obsmin = torch.FloatTensor([0., 0., 0., -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5, -1e5])
             self.obsmax = torch.FloatTensor([self.dmax+5, self.vmax+1., self.N+2, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5, 1e5])
             
@@ -505,7 +503,6 @@ class SimpleSpeed():
 
         elif self.SELECT_OBSERVATION == 'poly':
             # idx = torch.minimum(torch.floor(k/self.nIntvlIdx),torch.tensor(self.nIntvl-1)).int()
-            
             # dpNext = torch.matmul(torch.FloatTensor([[np.power(self.dt,3), np.power(self.dt,2), np.power(self.dt,1), 1]]), \
                                         # torch.transpose(torch.FloatTensor(self.fArr)[idx],0,-1)*torch.row_stack([(k+1)**3, (k+1)**2, k+1, torch.ones(k.shape)]))
             observation = torch.empty(state.shape[0],self.state_dim+1+self.nIntvl*(self.nPoly+1))

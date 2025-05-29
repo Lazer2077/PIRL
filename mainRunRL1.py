@@ -6,7 +6,6 @@ import gymnasium as gym
 from datetime import datetime
 import os, sys, random
 from copy import deepcopy
-import time
 from torch.utils.tensorboard import SummaryWriter
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 parser = argparse.ArgumentParser()
@@ -39,7 +38,7 @@ parser.add_argument('--automatic_entropy_tuning', type=bool, default=True, metav
 parser.add_argument('--eval_interval', type=int, default=20,
                     help='Evaluates a policy a policy every X episode (default: 10)')
 parser.add_argument('--start_steps', type=int, default=10000, metavar='N',
-                    help='Steps sampling random actions (default: 10000)')
+                    help='Steps sampling rand cv om actions (default: 10000)')
 args = parser.parse_args()
 # create a folder to save model and training log
 if args.seed:
@@ -47,18 +46,26 @@ if args.seed:
 else:
     selectRandomSeed = torch.seed()
 
-# env.seed(args.random_seed)
+# env.seed(args.random_seed)    
 random.seed(selectRandomSeed)
 torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
 args.OPT_METHODS = 'SAC' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'Nonlinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.ENV_NAME = 'NonLinear' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
 args.SELECT_OBSERVATION = 'poly'
-args.ENABLE_VALIDATION = False
+args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
-SEP_BUFFER = False
-
+Multi_buffer = False if args.OPT_METHODS == 'SAC' else True
+if 'ddpg' in args.OPT_METHODS.lower():
+    args.exploration_noise = 0.5
+    args.dynamic_noise = False
+    args.batch_size = 100
+    args.gamma = 1
+    args.update_iteration = 200
+    args.buffer_warm_size = 1000
+    args.actor_learning_rate = 1e-4
+    args.critic_learning_rate = 1e-3
 if 'sac' in args.OPT_METHODS.lower():
     args.policy_type = 'Gaussian'
     
@@ -118,8 +125,8 @@ else:
 
 
 MODEL_NAME = f'{args.OPT_METHODS}_{args.SELECT_OBSERVATION}_{args.ENV_NAME}'
-
-delete_command = 'python delete.py'
+cur_path = os.path.dirname(os.path.abspath(__file__))
+delete_command = f'python {cur_path}/delete.py'
 os.system(delete_command)
 
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
@@ -180,24 +187,8 @@ else:
         savePath, port, 10
     )
 os.system(cmd_line)
-from Env.SimpleSpeed import TerminalReward
+
 import OptMethods
-
-def generate_random_terminal(state, action, Env, ScalingDict):
-    '''
-    generate random terminal state and reward
-    return randomized state and reward
-    '''
-    nState = 2
-    x_mean = ScalingDict['xMean'][:nState]
-    x_std = ScalingDict['xStd'][:nState]
-    # random add noise to state
-    noise = np.random.normal(0, 1, size=state[:nState].shape)
-    state[:nState] =  x_mean + x_std * noise
-    dp_final = Env.dp[-1]
-    vp_final = Env.vp[-1]
-    return state[:nState], TerminalReward(state, dp_final, vp_final)
-
 def main():
     print(f"========= Exp Name: {MODEL_NAME}   Env: {args.ENV_NAME.lower()}   Agent: {args.OPT_METHODS.upper()} ===========")
     agent = getattr(OptMethods, '{}'.format(args.OPT_METHODS.upper()))(state_dim, action_space, ScalingDict, device, args)
@@ -212,49 +203,62 @@ def main():
             vp = Env.vp
             episode_reward = 0
             for t in count():
-                # concat dp and env.k
-                # dp[-1] = Env.k
                 # ref = np.concatenate((dp, vp), axis=-1) 
                 action = agent.select_action(state, ref=dp)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
+                if Multi_buffer:
+                    buffer_id = Env.k//(Env.N//agent.num_Q)
+                    end_done = (Env.k % (Env.N//agent.num_Q) == 0)
+                    if buffer_id == agent.num_Q:
+                        buffer_id = agent.num_Q - 1
+                    agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
+                else:   
+                    # if done:
+                    #     for p in range(Env.N):
+                    #         agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    # else:
+                        agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+
                 state = next_state
                 episode_steps += 1
-                xN,rN = generate_random_terminal(state, action, Env, ScalingDict)
-                agent.replay_buffer.push((state, next_state, action, reward, float(done), xN, rN))    
                 if i % 10 == 0:  
                     for j in range(min(state_dim, 2)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/State{j}', state[j], t)
                     for j in range(min(action_dim, 1)):
                         writer.add_scalar(f'Trajectory/Episode_{i}/Action{j}', action[j], t)
+                    if args.ENV_NAME == 'SimpleSpeed':
+                        dfk = dp[Env.k]-state[j]
+                        writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
+                        writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
+                
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
                         Info['iUpdate'] = iUp
-                        q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
-                        writer.add_scalar(f'Loss/Q1', q1_loss, i)
-                        writer.add_scalar(f'Loss/Q2', q2_loss, i)
+                        if Multi_buffer:      
+                            Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+                            for k in range(agent.num_Q):
+                                writer.add_scalar(f'Loss/Q{k+1}', Q_loss[k], i)
+                        else:
+                            q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
+                            writer.add_scalar(f'Loss/Q1', q1_loss, i)
+                            writer.add_scalar(f'Loss/Q2', q2_loss, i)
                         writer.add_scalar(f'Loss/Policy', policy_loss, i)
                         writer.add_scalar(f'Loss/Alpha_loss', alpha_loss, i)
                         writer.add_scalar(f'Loss/Alpha', alpha, i)
                 if done:
                     break
-            if SEP_BUFFER:      
-                Q_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
-                q1_loss, q2_loss, q3_loss = Q_loss
-                writer.add_scalar(f'Loss/Q3', q3_loss, i)
-            # else:   
-            #     q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size)
+            
             total_numsteps += episode_steps+1
             print("Episode: {}, total numsteps: {}, episode steps: {}, reward: {}".format(i, total_numsteps, episode_steps, episode_reward, 2))
-            writer.add_scalar('Episode/Reward', episode_reward, i)
+            writer.add_scalar('Episode/Train/Reward', episode_reward, i)
             if (i % args.eval_interval == 0):
                 agent.save(savePath)
                 if (args.ENABLE_VALIDATION) :
-                    EvalReplayBuffer = OptMethods.lib.ReplayBuffer.Replay_buffer()
                     avg_reward = 0.
-                    episodes = 10
+                    episodes = 5
                     for _  in range(episodes):
                         state, _ = Env.reset()
                         episode_reward = 0
@@ -262,23 +266,27 @@ def main():
                         dp = Env.dp
                         vp = Env.vp
                         for t in count():
-                            dp[-1] = Env.k
-                            # ref = np.concatenate((dp, vp), axis=-1)
-                            action = agent.select_action(state, ref=dp)
+                            action = agent.select_action(state, ref=dp, evaluate=True)
                             next_state, reward, terminated, truncated, _ = Env.step(action)
                             episode_reward += reward
                             done=terminated or truncated
-                            xN,rN = generate_random_terminal(next_state, action, Env, ScalingDict)
-                            EvalReplayBuffer.push((state, next_state, action, reward, float(done),xN, rN))
                             state = next_state
                             if done:
                                 break
-                        avg_reward += episode_reward
-                        #plotResults(agent, i, t)
+                            # write to tensorboard
+                            for j in range(min(state_dim, 2)):
+                                writer.add_scalar(f'Test/Ep_{i}/State{j}', state[j], t)
+                            for j in range(min(action_dim, 1)):
+                                writer.add_scalar(f'Test/Ep_{i}/Action{j}', action[j], t)    
+                            writer.add_scalar(f'Test/Ep_{i}/Reward', episode_reward, t)
+                            if args.ENV_NAME == 'SimpleSpeed':
+                                dfk = dp[Env.k]-state[j]
+                                writer.add_scalar(f'Test/Ep_{i}/CarFollowing', dfk, t)
+                                writer.add_scalar(f'Test/Ep_{i}/dp', dp[Env.k-1], t)
+                            avg_reward += episode_reward
                     avg_reward /= episodes
-                    
+                    writer.add_scalar(f'Episode/Test/Reward', avg_reward, i)
                     iStepEvaluation += 1
-                    writer.add_scalar('Test/Reward', avg_reward, i)
                     print("----------------------------------------")
                     print("Test Episodes: {}, Avg. Reward: {} ".format(episodes, avg_reward, 2))
                     print("----------------------------------------")
