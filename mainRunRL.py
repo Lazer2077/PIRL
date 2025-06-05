@@ -13,7 +13,7 @@ parser.add_argument('--tau',  default=0.005, type=float) # target smoothing coef
 parser.add_argument('--update_iteration', default=1, type=int)
 parser.add_argument('--mode', default='train', type=str) # test or train
 parser.add_argument('--learning_rate', default=1e-4, type=int)
-parser.add_argument('--gamma', default=0.99, type=int) # discount gamma
+parser.add_argument('--gamma', default=1, type=int) # discount gamma
 parser.add_argument('--capacity', default=1e6, type=int) # replay buffer size
 parser.add_argument('--max_episode', default=3000, type=int) #  num of  games
 parser.add_argument('--batch_size', default=128, type=int) # mini batch size
@@ -52,8 +52,9 @@ torch.manual_seed(selectRandomSeed)
 np.random.seed(selectRandomSeed & 0xFFFFFFFF)
 # add system path
 args.OPT_METHODS = 'SAC2' #'ddpg' 'SAC' 'PINNSAC1' 'pinntry' 'sacwithv','pinnsac_3'
-args.ENV_NAME = 'SimpleSpeed' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
-args.SELECT_OBSERVATION = 'poly'
+args.ENV_NAME = 'LQT' # 'cartpole-v1', 'Acrobot-v1', 'Pendulum-v1','HalfCheetah-v4', Ant-v4
+args.num_buffer = 2
+args.ShortTerm_Buffer = False
 args.ENABLE_VALIDATION = True
 args.EnvOptions = {}
 Multi_buffer = False
@@ -68,9 +69,9 @@ if 'ddpg' in args.OPT_METHODS.lower():
     args.critic_learning_rate = 1e-3
 if 'sac' in args.OPT_METHODS.lower():
     args.policy_type = 'Gaussian'
+    args.SELECT_OBSERVATION = 'poly'
+
     
-if 'ref' in args.OPT_METHODS.lower():
-    obs_type = 'none'
 
 if args.ENV_NAME == 'SimpleSpeed':
     from Env import SimpleSpeed
@@ -82,7 +83,7 @@ if args.ENV_NAME == 'SimpleSpeed':
     Env = SimpleSpeed(dataPath, SELECT_OBSERVATION=args.SELECT_OBSERVATION, options=args.EnvOptions)
     args.is_discrete = False
     action_dim = Env.action_dim
-    state_dim = Env.obs_dim  
+    state_dim = Env.state_dim  
 
     ScalingDict = {
             'actionMax': Env.umax,
@@ -110,7 +111,16 @@ elif args.ENV_NAME == 'Linear':
     ScalingDict = {}
     args.is_discrete = False
     args.load_path=  "/mnt/d/RL/PIRL/LogTmp/05_18_17_01_SAC_poly_Linear"
-
+elif args.ENV_NAME == 'LQT':
+    from Env import LQT
+    args.is_discrete = False
+    args.SELECT_OBSERVATION = 'ref'
+    Env = LQT(args=args)
+    state_dim = Env.x_dim
+    action_dim = Env.u_dim
+    args.obs_dim = Env.obs_dim
+    action_space = gym.spaces.Box(low=Env.umin, high=Env.umax, shape=(action_dim,))
+    ScalingDict = {}
 else:
     Env = gym.make(args.ENV_NAME)
     if isinstance(Env.action_space, gym.spaces.Discrete):
@@ -126,8 +136,8 @@ else:
 
 MODEL_NAME = f'{args.OPT_METHODS}_{args.SELECT_OBSERVATION}_{args.ENV_NAME}'
 cur_path = os.path.dirname(os.path.abspath(__file__))
-# delete_command = f'python {cur_path}/delete.py'
-# os.system(delete_command)
+delete_command = f'python {cur_path}/delete.py'
+os.system(delete_command)
 
 savePath = os.path.join(os.getcwd(), 'LogTmp', '{}_{}'.format(datetime.now().strftime("%m_%d_%H_%M"),MODEL_NAME))
 writer = SummaryWriter(savePath)
@@ -196,24 +206,37 @@ def main():
     episode_reward = 0
     iStepEvaluation = 0 # number of evaluation steps
     total_numsteps = 0
+
+    from collections import deque
+    short_term_buffer = deque(maxlen=args.num_buffer)
     for i in range(1, args.max_episode):
             episode_steps = 0
-            state, _ = Env.reset()
+            state, _ = Env.reset(random_state=True)
             dp = Env.dp
             episode_reward = 0
             for t in count():
                 # ref = np.concatenate((dp, vp), axis=-1) 
-                action = agent.select_action(state, ref=dp)
+                action = agent.select_action(state, ref=None)
                 next_state, reward, terminated, truncated, _ = Env.step(action)
                 episode_reward += reward
                 done=terminated or truncated
+                
                 if Multi_buffer:
                     buffer_id = Env.k//(Env.N//agent.num_Q)
                     if buffer_id == agent.num_Q:
                         buffer_id = agent.num_Q - 1
                     agent.replay_buffer_list[buffer_id].push((state, next_state, action, reward, float(done),dp))
+                elif args.ShortTerm_Buffer:
+                    short_term_buffer.append(state[:args.obs_dim])
+                    if  t < args.num_buffer :
+                        pass
+                    else:
+                        # cat_state = torch.cat(list(short_term_buffer), dim=0)
+                        stacked_state = torch.stack(list(short_term_buffer), dim=0)
+                        agent.replay_buffer.push((state, next_state, action, reward, float(done),stacked_state))
+                    
                 else:   
-                    agent.replay_buffer.push((state, next_state, action, reward, float(done),dp))    
+                    agent.replay_buffer.push((state, next_state, action, reward, float(done),Env.reference(Env.k)))    
 
                 state = next_state
                 episode_steps += 1
@@ -226,7 +249,10 @@ def main():
                         dfk = dp[Env.k]-state[j]
                         writer.add_scalar(f'Trajectory/Episode_{i}/CarFollowing', dfk, t)
                         writer.add_scalar(f'Trajectory/Episode_{i}/dp', dp[Env.k-1], t)
-                
+                    elif args.ENV_NAME == 'LQT':
+                        writer.add_scalar(f'Trajectory/Episode_{i}/x_traj', dp[Env.k-1,0], t)
+                        writer.add_scalar(f'Trajectory/Episode_{i}/y_traj', dp[Env.k-1,1], t)
+
                 if len(agent.replay_buffer.storage) >= args.buffer_warm_size:
                     Info = {'done': done}
                     for iUp in range(args.update_iteration):
@@ -236,7 +262,7 @@ def main():
                             for k in range(agent.num_Q):
                                 writer.add_scalar(f'Loss/Q{k+1}', Q_loss[k], i)
                         else:
-                            q1_loss, q2_loss, policy_loss, alpha_loss, alpha = agent.update(args.batch_size, Info)
+                            q1_loss, q2_loss, policy_loss, alpha_loss, alpha= agent.update(args.batch_size, Info)
                             writer.add_scalar(f'Loss/Q1', q1_loss, i)
                             writer.add_scalar(f'Loss/Q2', q2_loss, i)
                         writer.add_scalar(f'Loss/Policy', policy_loss, i)
@@ -254,11 +280,10 @@ def main():
                     avg_reward = 0.
                     episodes = 5
                     for _  in range(episodes):
-                        state, _ = Env.reset()
+                        state, _ = Env.reset(random_state=True)
                         episode_reward = 0
                         done = False
                         dp = Env.dp
-                        vp = Env.vp
                         for t in count():
                             action = agent.select_action(state, ref=dp, evaluate=True)
                             next_state, reward, terminated, truncated, _ = Env.step(action)
@@ -278,6 +303,9 @@ def main():
                                 dfk = dp[Env.k]-state[j]
                                 writer.add_scalar(f'Test/Ep_{i}/CarFollowing', dfk, t)
                                 writer.add_scalar(f'Test/Ep_{i}/dp', dp[Env.k-1], t)
+                            elif args.ENV_NAME == 'LQT':
+                                writer.add_scalar(f'Test/Ep_{i}/x_traj', dp[Env.k-1,0], t)
+                                writer.add_scalar(f'Test/Ep_{i}/y_traj', dp[Env.k-1,1], t)
                                 
                             avg_reward += episode_reward
                         try:
@@ -293,12 +321,6 @@ def main():
                             print(f'ep{i}_ref.png saved')   
                         except:
                             pass
-                        
-                        
-                        
-                        
-                        
-                        
                     avg_reward /= episodes
                     writer.add_scalar(f'Episode/Test/Reward', avg_reward, i)
                     iStepEvaluation += 1
